@@ -1,0 +1,34 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-android:
+    name: Crear APK Android
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Descargar archivos del proyecto
+        uses: actions/checkout@v4
+
+      - name: Instalar herramientas gratis para compilar Android
+        run: |
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user --upgrade buildozer cython==0.29.36
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Crear APK con Buildozer
+        run: buildozer android debug
+
+      - name: Guardar APK para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: CumbrePark-APK
+          path: bin/*.apk
