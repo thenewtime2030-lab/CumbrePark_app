@@ -22,10 +22,9 @@ android.permissions = INTERNET,ACCESS_FINE_LOCATION,ACCESS_COARSE_LOCATION
 
 android.accept_sdk_license = True
 
-# API/arquitecturas habituales para debug. Se pueden ajustar al publicar.
 android.api = 35
 android.minapi = 23
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = arm64-v8a
 
 # Color aproximado del logo.
 android.presplash_color = #08334F
