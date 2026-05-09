@@ -1,0 +1,4 @@
+kivy
+requests
+plyer
+kivy_garden.mapview
