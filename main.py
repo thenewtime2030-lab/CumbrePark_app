@@ -336,6 +336,20 @@ class LocationMap(BoxLayout):
             return False
         if getattr(touch, "grab_current", None):
             return False
+
+        # V.0.1.1:
+        # Si la persona arrastra el mapa, no seleccionamos clima.
+        # Solo seleccionamos clima cuando fue un toque corto.
+        try:
+            opos = getattr(touch, "opos", touch.pos)
+            dx = float(touch.x - opos[0])
+            dy = float(touch.y - opos[1])
+            distance = (dx * dx + dy * dy) ** 0.5
+            if distance > dp(12):
+                return False
+        except Exception:
+            pass
+
         try:
             try:
                 lat, lon = map_widget.get_latlon_at(touch.x, touch.y, map_widget.zoom)
@@ -353,6 +367,7 @@ class HomeScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.name = "home"
+        self.has_centered_on_gps = False
 
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
         root.canvas.before.add(Color(*COLORS["white"]))
@@ -407,15 +422,24 @@ class HomeScreen(Screen):
         actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(44))
         gps_btn = SmallButton(text="Usar mi ubicación")
         maps_btn = SmallButton(text="Abrir Google Maps")
-        gps_btn.bind(on_release=lambda *_: App.get_running_app().request_gps())
+        gps_btn.bind(on_release=lambda *_: self.request_home_gps())
         maps_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps())
         actions.add_widget(gps_btn)
         actions.add_widget(maps_btn)
         panel.add_widget(actions)
         root.add_widget(panel)
 
+    def request_home_gps(self) -> None:
+        # V.0.1.1:
+        # Al pedir ubicación desde el inicio, centramos el mapa una vez.
+        # Luego dejamos que la persona pueda mover el mapa sin que vuelva solo.
+        self.has_centered_on_gps = False
+        App.get_running_app().request_gps()
+
     def on_location_update(self, lat: float, lon: float) -> None:
-        self.map_preview.set_marker(lat, lon, center=True)
+        should_center = not self.has_centered_on_gps
+        self.map_preview.set_marker(lat, lon, center=should_center)
+        self.has_centered_on_gps = True
         self.status_label.text = f"GPS activo: {lat:.5f}, {lon:.5f}"
 
     def set_status(self, message: str) -> None:
@@ -440,7 +464,7 @@ class WeatherScreen(Screen):
         intro.add_widget(MutedLabel(text="El panel resume temperatura, lluvia y viento. Es una base para evolucionar hacia capas tipo Windy.", size_hint_y=None, height=dp(36)))
         root.add_widget(intro)
 
-        self.map_widget = LocationMap(selectable=True, on_select=self.select_point, size_hint_y=0.48)
+        self.map_widget = LocationMap(selectable=True, on_select=self.select_point_from_map, size_hint_y=0.48)
         root.add_widget(self.map_widget)
 
         action_row = GridLayout(cols=3, spacing=dp(8), padding=[dp(12), dp(6), dp(12), dp(6)], size_hint_y=None, height=dp(56))
@@ -469,13 +493,19 @@ class WeatherScreen(Screen):
 
     def use_current_location(self) -> None:
         app = App.get_running_app()
-        self.select_point(app.current_lat, app.current_lon)
+        self.select_point(app.current_lat, app.current_lon, center=True)
         app.request_gps()
 
-    def select_point(self, lat: float, lon: float) -> None:
+    def select_point_from_map(self, lat: float, lon: float) -> None:
+        # V.0.1.1:
+        # Cuando se toca el mapa para consultar clima, no lo recentramos.
+        # Así la persona puede explorar sin que el mapa salte.
+        self.select_point(lat, lon, center=False)
+
+    def select_point(self, lat: float, lon: float, center: bool = True) -> None:
         self.selected_lat = float(lat)
         self.selected_lon = float(lon)
-        self.map_widget.set_marker(self.selected_lat, self.selected_lon, center=True)
+        self.map_widget.set_marker(self.selected_lat, self.selected_lon, center=center)
         self.fetch_weather(self.selected_lat, self.selected_lon)
 
     def fetch_weather(self, lat: float, lon: float) -> None:
@@ -705,6 +735,8 @@ class CumbreParkApp(App):
         self.title = "CumbrePark"
         self.has_requested_gps = False
         self.gps_running = False
+        self.has_real_gps_fix = False
+        self.last_gps_accuracy: Optional[float] = None
         self.sm: Optional[ScreenManager] = None
 
     def build(self) -> ScreenManager:
@@ -722,9 +754,28 @@ class CumbreParkApp(App):
     def go_home(self) -> None:
         self.go_to("home")
 
-    def set_current_location(self, lat: float, lon: float) -> None:
+    def set_current_location(self, lat: float, lon: float, accuracy: Optional[float] = None) -> None:
+        # V.0.1.1:
+        # Evita coordenadas inválidas y saltos raros del GPS.
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            self.set_status("GPS entregó una coordenada inválida. Se ignoró.")
+            return
+
+        if accuracy is not None and accuracy > 5000:
+            self.set_status(f"GPS con poca precisión ({accuracy:.0f} m). Esperando mejor señal...")
+            return
+
+        if self.has_real_gps_fix:
+            jump_km = haversine_km(self.current_lat, self.current_lon, lat, lon)
+            if jump_km > 80 and accuracy is not None and accuracy > 100:
+                self.set_status("GPS inestable: se ignoró un salto extraño de ubicación.")
+                return
+
         self.current_lat = lat
         self.current_lon = lon
+        self.last_gps_accuracy = accuracy
+        self.has_real_gps_fix = True
+
         for screen in self.sm.screens if self.sm else []:
             callback = getattr(screen, "on_location_update", None)
             if callable(callback):
@@ -752,7 +803,7 @@ class CumbreParkApp(App):
             from plyer import gps
 
             gps.configure(on_location=self._on_gps_location, on_status=self._on_gps_status)
-            gps.start(minTime=1000, minDistance=1)
+            gps.start(minTime=5000, minDistance=10)
             self.gps_running = True
             self.set_status("GPS iniciado. Esperando coordenadas reales...")
         except Exception as exc:
@@ -763,7 +814,9 @@ class CumbreParkApp(App):
         try:
             lat = float(kwargs.get("lat"))
             lon = float(kwargs.get("lon"))
-            Clock.schedule_once(lambda *_: self.set_current_location(lat, lon), 0)
+            accuracy_raw = kwargs.get("accuracy")
+            accuracy = float(accuracy_raw) if accuracy_raw is not None else None
+            Clock.schedule_once(lambda *_: self.set_current_location(lat, lon, accuracy), 0)
         except Exception:
             pass
 
