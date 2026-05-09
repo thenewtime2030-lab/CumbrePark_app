@@ -20,6 +20,8 @@ fullscreen = 0
 # Permisos necesarios para mapa, APIs externas y GPS en Android.
 android.permissions = INTERNET,ACCESS_FINE_LOCATION,ACCESS_COARSE_LOCATION
 
+android.accept_sdk_license = True
+
 # API/arquitecturas habituales para debug. Se pueden ajustar al publicar.
 android.api = 35
 android.minapi = 23
