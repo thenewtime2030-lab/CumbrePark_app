@@ -16,16 +16,25 @@ jobs:
       - name: Descargar archivos del proyecto
         uses: actions/checkout@v4
 
+      - name: Activar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Instalar herramientas gratis para compilar Android
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake
+          sudo apt install -y git zip unzip python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake
           python3 -m pip install --user --upgrade pip setuptools wheel
           python3 -m pip install --user --upgrade buildozer cython==0.29.36
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Crear APK con Buildozer
-        run: buildozer android debug
+        run: |
+          echo "Revisando versión de Java:"
+          java -version
+          buildozer android debug
 
       - name: Guardar APK para descargar
         uses: actions/upload-artifact@v4
