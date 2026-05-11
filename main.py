@@ -598,12 +598,17 @@ class WeatherScreen(Screen):
 
         forecast_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None)
         forecast_panel.padding = [dp(14), dp(16), dp(14), dp(14)]
-        forecast_panel.spacing = dp(8)
-        forecast_panel.add_widget(TitleLabel(text="Próximas horas", size_hint_y=None, height=dp(34)))
+        forecast_panel.spacing = dp(10)
+        forecast_panel.add_widget(TitleLabel(text="Próximas horas", size_hint_y=None, height=dp(36)))
         for idx, hour in enumerate(times):
-            line = f"{hour[-5:]}  ·  {temps[idx] if idx < len(temps) else '-'}°C  ·  lluvia {probs[idx] if idx < len(probs) else '-'}%  ·  viento {winds[idx] if idx < len(winds) else '-'} km/h"
-            forecast_panel.add_widget(MutedLabel(text=line, size_hint_y=None, height=dp(28)))
-        forecast_panel.height = dp(64 + 28 * max(1, len(times)))
+            line = (
+                f"{hour[-5:]}  ·  {temps[idx] if idx < len(temps) else '-'}°C\n"
+                f"Lluvia: {probs[idx] if idx < len(probs) else '-'}%  ·  Viento: {winds[idx] if idx < len(winds) else '-'} km/h"
+            )
+            hour_label = MutedLabel(text=line, size_hint_y=None, height=dp(44))
+            hour_label.line_height = 1.15
+            forecast_panel.add_widget(hour_label)
+        forecast_panel.height = dp(70 + 44 * max(1, len(times)))
         self.weather_content.add_widget(forecast_panel)
 
 
