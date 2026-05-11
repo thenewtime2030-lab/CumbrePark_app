@@ -100,6 +100,17 @@ DEFAULT_LON = -70.6693
 DEFAULT_ZOOM = 11
 
 
+def _bind_label_auto_height(label: Label, min_height: float = 0.0) -> None:
+    def _update_height(*_: Any) -> None:
+        if not label.text_size:
+            return
+        texture_h = label.texture_size[1] if label.texture_size else 0
+        label.height = max(min_height, texture_h + dp(6))
+
+    label.bind(texture_size=_update_height, width=lambda *_: _update_height())
+    Clock.schedule_once(lambda *_: _update_height(), 0)
+
+
 @dataclass
 class Place:
     name: str
@@ -248,6 +259,7 @@ class TitleLabel(Label):
         self.halign = "left"
         self.valign = "middle"
         self.bind(size=self.setter("text_size"))
+        self.text_size = (self.width, None)
 
 
 class BodyLabel(Label):
@@ -258,6 +270,7 @@ class BodyLabel(Label):
         self.halign = "left"
         self.valign = "middle"
         self.bind(size=self.setter("text_size"))
+        self.text_size = (self.width, None)
 
 
 class MutedLabel(Label):
@@ -268,25 +281,42 @@ class MutedLabel(Label):
         self.halign = "left"
         self.valign = "middle"
         self.bind(size=self.setter("text_size"))
+        self.text_size = (self.width, None)
 
 
 class Header(BoxLayout):
     def __init__(self, title: str, back: bool = True, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.orientation = "horizontal"
+        self.orientation = "vertical"
         self.size_hint_y = None
-        self.height = dp(62)
-        self.padding = [dp(12), dp(8), dp(12), dp(8)]
-        self.spacing = dp(10)
+        self.height = dp(96)
+        self.padding = [dp(12), dp(8), dp(12), dp(10)]
+        self.spacing = dp(4)
+
+        top_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(42), spacing=dp(8))
         if back:
             back_btn = SecondaryButton(text="‹ Inicio")
-            back_btn.width = dp(96)
+            back_btn.width = dp(112)
             back_btn.size_hint_x = None
             back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
-            self.add_widget(back_btn)
-        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_x=None, width=dp(52))
-        self.add_widget(logo)
-        self.add_widget(TitleLabel(text=title))
+            top_row.add_widget(back_btn)
+        logo = Image(
+            source="assets/logo_cumbrepark.png",
+            fit_mode="contain",
+            size_hint=(None, None),
+            width=dp(28),
+            height=dp(28),
+        )
+        logo_wrap = AnchorLayout(anchor_x="left", anchor_y="center", size_hint_x=None, width=dp(36))
+        logo_wrap.add_widget(logo)
+        top_row.add_widget(logo_wrap)
+        top_row.add_widget(Widget())
+        self.add_widget(top_row)
+
+        title_label = TitleLabel(text=title, font_size="22sp", size_hint_y=None, height=dp(34))
+        title_label.halign = "center"
+        title_label.valign = "middle"
+        self.add_widget(title_label)
 
 
 class LocationMap(BoxLayout):
@@ -373,7 +403,7 @@ class HomeScreen(Screen):
         root.canvas.before.add(Color(*COLORS["white"]))
         self.add_widget(root)
 
-        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_y=0.28)
+        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_y=None, height=dp(110))
         root.add_widget(logo)
 
         title = Label(
@@ -411,7 +441,7 @@ class HomeScreen(Screen):
         grid.add_widget(btn_safety)
         root.add_widget(grid)
 
-        panel = RoundedPanel(orientation="vertical", size_hint_y=0.42, bg_color=COLORS["soft"])
+        panel = RoundedPanel(orientation="vertical", size_hint_y=0.48, bg_color=COLORS["soft"])
         panel.add_widget(BodyLabel(text="Ubicación en vivo", size_hint_y=None, height=dp(24)))
         self.status_label = MutedLabel(text="Puedes activar GPS para centrar el mapa en tu ubicación.", size_hint_y=None, height=dp(38))
         panel.add_widget(self.status_label)
@@ -459,9 +489,9 @@ class WeatherScreen(Screen):
 
         root.add_widget(Header("Mapa + clima"))
 
-        intro = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(92), bg_color=COLORS["soft"])
-        intro.add_widget(BodyLabel(text="Toca un punto del mapa para consultar clima local.", size_hint_y=None, height=dp(26)))
-        intro.add_widget(MutedLabel(text="El panel resume temperatura, lluvia y viento. Es una base para evolucionar hacia capas tipo Windy.", size_hint_y=None, height=dp(36)))
+        intro = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(120), bg_color=COLORS["soft"])
+        intro.add_widget(BodyLabel(text="Toca un punto del mapa para consultar clima local.", size_hint_y=None, height=dp(30)))
+        intro.add_widget(MutedLabel(text="El panel resume temperatura, lluvia y viento. Es una base para evolucionar hacia capas tipo Windy.", size_hint_y=None, height=dp(52)))
         root.add_widget(intro)
 
         self.map_widget = LocationMap(selectable=True, on_select=self.select_point_from_map, size_hint_y=0.48)
@@ -479,7 +509,7 @@ class WeatherScreen(Screen):
         action_row.add_widget(google_btn)
         root.add_widget(action_row)
 
-        self.weather_scroll = ScrollView(size_hint_y=0.42)
+        self.weather_scroll = ScrollView(size_hint_y=0.38)
         self.weather_content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12), size_hint_y=None)
         self.weather_content.bind(minimum_height=self.weather_content.setter("height"))
         self.weather_scroll.add_widget(self.weather_content)
@@ -548,12 +578,16 @@ class WeatherScreen(Screen):
         wdir = current.get("wind_direction_10m", "-")
         code = int(current.get("weather_code", -1)) if str(current.get("weather_code", "")).lstrip("-").isdigit() else -1
 
-        summary = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None, height=dp(176))
+        summary = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None)
+        summary.spacing = dp(6)
         summary.add_widget(TitleLabel(text="Clima del punto seleccionado", size_hint_y=None, height=dp(34)))
-        summary.add_widget(BodyLabel(text=f"Coordenadas: {lat:.5f}, {lon:.5f}", size_hint_y=None, height=dp(24)))
-        summary.add_widget(BodyLabel(text=f"Estado: {weather_description(code)}", size_hint_y=None, height=dp(24)))
-        summary.add_widget(BodyLabel(text=f"Temperatura: {temp} {units.get('temperature_2m', '°C')}  |  Humedad: {hum}%", size_hint_y=None, height=dp(24)))
-        summary.add_widget(BodyLabel(text=f"Lluvia actual: {rain} {units.get('precipitation', 'mm')}  |  Viento: {wind} {units.get('wind_speed_10m', 'km/h')} dir. {wdir}°", size_hint_y=None, height=dp(34)))
+        summary.add_widget(BodyLabel(text=f"Coordenadas: {lat:.5f}, {lon:.5f}", size_hint_y=None, height=dp(26)))
+        summary.add_widget(BodyLabel(text=f"Estado: {weather_description(code)}", size_hint_y=None, height=dp(26)))
+        summary.add_widget(BodyLabel(text=f"Temperatura: {temp} {units.get('temperature_2m', '°C')}", size_hint_y=None, height=dp(26)))
+        summary.add_widget(BodyLabel(text=f"Humedad: {hum}%", size_hint_y=None, height=dp(26)))
+        summary.add_widget(BodyLabel(text=f"Lluvia actual: {rain} {units.get('precipitation', 'mm')}", size_hint_y=None, height=dp(26)))
+        summary.add_widget(BodyLabel(text=f"Viento: {wind} {units.get('wind_speed_10m', 'km/h')}  ·  Dirección: {wdir}°", size_hint_y=None, height=dp(30)))
+        summary.height = dp(252)
         self.weather_content.add_widget(summary)
 
         hourly = data.get("hourly", {})
@@ -563,11 +597,13 @@ class WeatherScreen(Screen):
         winds = hourly.get("wind_speed_10m", [])[:8]
 
         forecast_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None)
+        forecast_panel.padding = [dp(14), dp(16), dp(14), dp(14)]
+        forecast_panel.spacing = dp(8)
         forecast_panel.add_widget(TitleLabel(text="Próximas horas", size_hint_y=None, height=dp(34)))
         for idx, hour in enumerate(times):
             line = f"{hour[-5:]}  ·  {temps[idx] if idx < len(temps) else '-'}°C  ·  lluvia {probs[idx] if idx < len(probs) else '-'}%  ·  viento {winds[idx] if idx < len(winds) else '-'} km/h"
             forecast_panel.add_widget(MutedLabel(text=line, size_hint_y=None, height=dp(28)))
-        forecast_panel.height = dp(48 + 28 * max(1, len(times)))
+        forecast_panel.height = dp(64 + 28 * max(1, len(times)))
         self.weather_content.add_widget(forecast_panel)
 
 
@@ -709,11 +745,21 @@ class NearbyScreen(Screen):
 
 class PlaceCard(RoundedPanel):
     def __init__(self, place: Place, **kwargs: Any) -> None:
-        super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, height=dp(168), **kwargs)
+        super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, **kwargs)
         self.place = place
-        self.add_widget(TitleLabel(text=place.name, size_hint_y=None, height=dp(34)))
-        self.add_widget(BodyLabel(text=f"{place.kind}  ·  {place.distance_km:.1f} km", size_hint_y=None, height=dp(28)))
-        self.add_widget(MutedLabel(text=f"Coordenadas: {place.lat:.5f}, {place.lon:.5f}  ·  Fuente: {place.source}", size_hint_y=None, height=dp(34)))
+        self.spacing = dp(6)
+        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(52), font_size="20sp")
+        subtitle = BodyLabel(text=f"{place.kind}  ·  {place.distance_km:.1f} km", size_hint_y=None, height=dp(28))
+        coords = MutedLabel(text=f"Coordenadas: {place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(26))
+        source = MutedLabel(text=f"Fuente: {place.source}", size_hint_y=None, height=dp(24))
+        _bind_label_auto_height(title, dp(52))
+        _bind_label_auto_height(subtitle, dp(28))
+        _bind_label_auto_height(coords, dp(26))
+        _bind_label_auto_height(source, dp(24))
+        self.add_widget(title)
+        self.add_widget(subtitle)
+        self.add_widget(coords)
+        self.add_widget(source)
         actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(42))
         map_btn = SmallButton(text="Ver en mapa")
         google_btn = SmallButton(text="Google Maps")
@@ -722,6 +768,7 @@ class PlaceCard(RoundedPanel):
         actions.add_widget(map_btn)
         actions.add_widget(google_btn)
         self.add_widget(actions)
+        self.bind(minimum_height=self.setter("height"))
 
 
 class CumbreParkApp(App):
