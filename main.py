@@ -494,7 +494,7 @@ class WeatherScreen(Screen):
         intro.add_widget(MutedLabel(text="El panel resume temperatura, lluvia y viento. Es una base para evolucionar hacia capas tipo Windy.", size_hint_y=None, height=dp(52)))
         root.add_widget(intro)
 
-        self.map_widget = LocationMap(selectable=True, on_select=self.select_point_from_map, size_hint_y=0.48)
+        self.map_widget = LocationMap(selectable=True, on_select=self.select_point_from_map, size_hint_y=0.44)
         root.add_widget(self.map_widget)
 
         action_row = GridLayout(cols=3, spacing=dp(8), padding=[dp(12), dp(6), dp(12), dp(6)], size_hint_y=None, height=dp(56))
@@ -509,8 +509,8 @@ class WeatherScreen(Screen):
         action_row.add_widget(google_btn)
         root.add_widget(action_row)
 
-        self.weather_scroll = ScrollView(size_hint_y=0.38)
-        self.weather_content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12), size_hint_y=None)
+        self.weather_scroll = ScrollView(size_hint_y=0.42)
+        self.weather_content = BoxLayout(orientation="vertical", spacing=dp(14), padding=dp(12), size_hint_y=None)
         self.weather_content.bind(minimum_height=self.weather_content.setter("height"))
         self.weather_scroll.add_widget(self.weather_content)
         root.add_widget(self.weather_scroll)
@@ -580,6 +580,7 @@ class WeatherScreen(Screen):
 
         summary = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None)
         summary.spacing = dp(6)
+        summary.bind(minimum_height=summary.setter("height"))
         summary.add_widget(TitleLabel(text="Clima del punto seleccionado", size_hint_y=None, height=dp(34)))
         summary.add_widget(BodyLabel(text=f"Coordenadas: {lat:.5f}, {lon:.5f}", size_hint_y=None, height=dp(26)))
         summary.add_widget(BodyLabel(text=f"Estado: {weather_description(code)}", size_hint_y=None, height=dp(26)))
@@ -587,7 +588,6 @@ class WeatherScreen(Screen):
         summary.add_widget(BodyLabel(text=f"Humedad: {hum}%", size_hint_y=None, height=dp(26)))
         summary.add_widget(BodyLabel(text=f"Lluvia actual: {rain} {units.get('precipitation', 'mm')}", size_hint_y=None, height=dp(26)))
         summary.add_widget(BodyLabel(text=f"Viento: {wind} {units.get('wind_speed_10m', 'km/h')}  ·  Dirección: {wdir}°", size_hint_y=None, height=dp(30)))
-        summary.height = dp(252)
         self.weather_content.add_widget(summary)
 
         hourly = data.get("hourly", {})
