@@ -35,6 +35,8 @@ from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.slider import Slider
@@ -619,50 +621,195 @@ class WeatherScreen(Screen):
         self.weather_content.add_widget(forecast_panel)
 
 
+class OriginModeButton(ToggleButton):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.background_normal = ""
+        self.background_down = ""
+        self.size_hint_y = None
+        self.height = dp(42)
+        self.font_size = "13sp"
+        self.bold = True
+        self.update_style()
+        self.bind(state=lambda *_: self.update_style())
+
+    def update_style(self, *_: Any) -> None:
+        if self.state == "down":
+            self.background_color = COLORS["blue"]
+            self.color = COLORS["white"]
+        else:
+            self.background_color = COLORS["mint"]
+            self.color = COLORS["navy"]
+
+
 class NearbyScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.name = "nearby"
         self.radius_km = 10
+        self.selected_origin_lat: Optional[float] = None
+        self.selected_origin_lon: Optional[float] = None
+        self.selected_origin_source = "gps"
 
         root = BoxLayout(orientation="vertical")
         root.canvas.before.add(Color(*COLORS["white"]))
         self.add_widget(root)
         root.add_widget(Header("Lugares cercanos"))
 
-        controls = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(170), bg_color=COLORS["soft"])
-        controls.add_widget(BodyLabel(text="Busca parques, trekkings, senderos y reservas cercanas a tu GPS.", size_hint_y=None, height=dp(30)))
-        self.radius_label = TitleLabel(text=f"Rango: {self.radius_km} km", size_hint_y=None, height=dp(34))
+        body_scroll = ScrollView()
+        body = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12), size_hint_y=None)
+        body.bind(minimum_height=body.setter("height"))
+        body_scroll.add_widget(body)
+        root.add_widget(body_scroll)
+
+        controls = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"])
+        controls.bind(minimum_height=controls.setter("height"))
+        controls.add_widget(BodyLabel(text="Selecciona un origen para buscar parques, senderos y reservas cercanas.", size_hint_y=None, height=dp(34)))
+
+        self.origin_status = MutedLabel(text="Origen actual: GPS", size_hint_y=None, height=dp(28))
+        controls.add_widget(self.origin_status)
+
+        mode_row = GridLayout(cols=3, spacing=dp(8), size_hint_y=None, height=dp(44))
+        self.mode_gps = OriginModeButton(text="Usar mi GPS", group="origin_mode", state="down")
+        self.mode_manual = OriginModeButton(text="Elegir punto manualmente", group="origin_mode")
+        self.mode_address = OriginModeButton(text="Buscar dirección", group="origin_mode")
+        self.mode_gps.bind(on_release=lambda *_: self.set_origin_mode("gps"))
+        self.mode_manual.bind(on_release=lambda *_: self.set_origin_mode("manual"))
+        self.mode_address.bind(on_release=lambda *_: self.set_origin_mode("address"))
+        mode_row.add_widget(self.mode_gps)
+        mode_row.add_widget(self.mode_manual)
+        mode_row.add_widget(self.mode_address)
+        controls.add_widget(mode_row)
+
+        self.origin_map = MapView(lat=DEFAULT_LAT, lon=DEFAULT_LON, zoom=12, size_hint_y=None, height=dp(220))
+        controls.add_widget(self.origin_map)
+        self.origin_marker = MapMarker(lat=DEFAULT_LAT, lon=DEFAULT_LON)
+        self.origin_map.add_marker(self.origin_marker)
+        self.origin_map.bind(on_touch_up=self.on_origin_map_touch)
+
+        address_row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(46))
+        self.address_input = TextInput(hint_text="Escribe una dirección", multiline=False, size_hint_y=None, height=dp(46), background_normal="", background_active="", background_color=COLORS["white"], foreground_color=COLORS["text"], padding=[dp(10), dp(12), dp(10), 0])
+        address_btn = SmallButton(text="Usar dirección")
+        address_btn.bind(on_release=lambda *_: self.use_address())
+        address_row.add_widget(self.address_input)
+        address_row.add_widget(address_btn)
+        controls.add_widget(address_row)
+
+        self.radius_label = TitleLabel(text=f"Rango: {self.radius_km} km", size_hint_y=None, height=dp(32), font_size="20sp")
         controls.add_widget(self.radius_label)
         self.slider = Slider(min=1, max=100, value=self.radius_km, step=1, size_hint_y=None, height=dp(44))
         self.slider.bind(value=self.on_radius_change)
         controls.add_widget(self.slider)
-        row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(46))
-        gps_btn = SmallButton(text="Actualizar GPS")
+
+        action_row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(46))
+        gps_btn = SecondaryButton(text="Actualizar GPS")
         gps_btn.bind(on_release=lambda *_: App.get_running_app().request_gps())
         search_btn = SmallButton(text="Buscar cercanos")
         search_btn.bind(on_release=lambda *_: self.search_nearby())
-        row.add_widget(gps_btn)
-        row.add_widget(search_btn)
-        controls.add_widget(row)
-        root.add_widget(controls)
+        action_row.add_widget(gps_btn)
+        action_row.add_widget(search_btn)
+        controls.add_widget(action_row)
+        body.add_widget(controls)
 
-        self.results_scroll = ScrollView()
-        self.results_content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12), size_hint_y=None)
+        self.results_content = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
         self.results_content.bind(minimum_height=self.results_content.setter("height"))
-        self.results_scroll.add_widget(self.results_content)
-        root.add_widget(self.results_scroll)
+        body.add_widget(self.results_content)
 
-        Clock.schedule_once(lambda *_: self.render_message("Ajusta el rango y presiona “Buscar cercanos”."), 0.2)
+        Clock.schedule_once(lambda *_: self.render_message("Ajusta origen y rango, luego presiona “Buscar cercanos”."), 0.2)
 
     def on_pre_enter(self, *_: Any) -> None:
         app = App.get_running_app()
         if not app.has_requested_gps:
             app.request_gps()
+        self.ensure_origin_fallback()
 
     def on_location_update(self, lat: float, lon: float) -> None:
-        # No se busca automáticamente para no gastar datos; se actualiza con el botón.
-        pass
+        if self.selected_origin_source == "gps":
+            self.set_selected_origin(lat, lon, "gps")
+
+    def set_origin_mode(self, mode: str) -> None:
+        self.selected_origin_source = mode
+        if mode == "gps":
+            app = App.get_running_app()
+            self.set_selected_origin(app.current_lat, app.current_lon, "gps")
+            self.render_message("Se usará tu GPS actual como origen de búsqueda.")
+        elif mode == "manual":
+            self.render_message("Toca el mapa para elegir el punto manual de búsqueda.")
+        else:
+            self.render_message("Escribe una dirección y pulsa “Usar dirección”.")
+        self.update_origin_status()
+
+    def on_origin_map_touch(self, mapview: MapView, touch: Any) -> bool:
+        if not self.mode_manual.state == "down":
+            return False
+        if not mapview.collide_point(*touch.pos):
+            return False
+        try:
+            lat, lon = mapview.get_latlon_at(*touch.pos)
+            self.set_selected_origin(lat, lon, "manual")
+            self.render_message("Punto manual actualizado. Ya puedes buscar por rango.")
+            return False
+        except Exception:
+            return False
+
+    def set_selected_origin(self, lat: float, lon: float, source: str) -> None:
+        self.selected_origin_lat = float(lat)
+        self.selected_origin_lon = float(lon)
+        self.selected_origin_source = source
+        self.origin_marker.lat = float(lat)
+        self.origin_marker.lon = float(lon)
+        self.origin_map.center_on(float(lat), float(lon))
+        self.update_origin_status()
+
+    def update_origin_status(self) -> None:
+        lat = self.selected_origin_lat
+        lon = self.selected_origin_lon
+        source_labels = {"gps": "GPS", "manual": "Punto manual", "address": "Dirección"}
+        source_text = source_labels.get(self.selected_origin_source, "GPS")
+        if lat is None or lon is None:
+            self.origin_status.text = f"Origen actual: {source_text}"
+        else:
+            self.origin_status.text = f"Origen actual: {source_text} ({lat:.5f}, {lon:.5f})"
+
+    def ensure_origin_fallback(self) -> tuple[float, float, str]:
+        app = App.get_running_app()
+        if self.selected_origin_lat is None or self.selected_origin_lon is None:
+            self.set_selected_origin(app.current_lat, app.current_lon, "gps")
+        return self.selected_origin_lat, self.selected_origin_lon, self.selected_origin_source
+
+    def use_address(self) -> None:
+        address = self.address_input.text.strip()
+        if not address:
+            self.render_message("Debes escribir una dirección antes de usarla.")
+            return
+        self.render_message("Buscando dirección...")
+
+        def worker() -> None:
+            try:
+                response = requests.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": address, "format": "json", "limit": 1},
+                    timeout=20,
+                    headers={"User-Agent": "CumbrePark prototype / Python Kivy"},
+                )
+                response.raise_for_status()
+                data = response.json()
+                if not data:
+                    raise ValueError("No se encontró la dirección ingresada.")
+                lat = float(data[0]["lat"])
+                lon = float(data[0]["lon"])
+                Clock.schedule_once(lambda *_: self.after_address_resolved(lat, lon), 0)
+            except Exception as exc:
+                Clock.schedule_once(lambda *_: self.render_message(f"No se pudo resolver la dirección: {exc}"), 0)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def after_address_resolved(self, lat: float, lon: float) -> None:
+        self.mode_address.state = "down"
+        self.mode_gps.state = "normal"
+        self.mode_manual.state = "normal"
+        self.set_selected_origin(lat, lon, "address")
+        self.render_message("Dirección encontrada y marcada como origen.")
 
     def on_radius_change(self, _: Slider, value: float) -> None:
         self.radius_km = int(value)
@@ -670,41 +817,39 @@ class NearbyScreen(Screen):
 
     def render_message(self, message: str) -> None:
         self.results_content.clear_widgets()
-        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(112), bg_color=COLORS["white"])
+        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(88), bg_color=COLORS["white"])
         panel.add_widget(BodyLabel(text=message))
         self.results_content.add_widget(panel)
 
     def search_nearby(self) -> None:
-        app = App.get_running_app()
-        lat = app.current_lat
-        lon = app.current_lon
+        origin_lat, origin_lon, origin_source = self.ensure_origin_fallback()
         radius_m = int(self.radius_km * 1000)
-        self.render_message(f"Buscando lugares en un radio de {self.radius_km} km...")
+        self.render_message(f"Buscando lugares en {self.radius_km} km desde {origin_source}...")
 
         def worker() -> None:
             try:
                 query = f"""
                 [out:json][timeout:25];
                 (
-                  node(around:{radius_m},{lat},{lon})["leisure"~"park|nature_reserve"];
-                  way(around:{radius_m},{lat},{lon})["leisure"~"park|nature_reserve"];
-                  relation(around:{radius_m},{lat},{lon})["leisure"~"park|nature_reserve"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["leisure"~"park|nature_reserve"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["leisure"~"park|nature_reserve"];
+                  relation(around:{radius_m},{origin_lat},{origin_lon})["leisure"~"park|nature_reserve"];
 
-                  node(around:{radius_m},{lat},{lon})["boundary"="protected_area"];
-                  way(around:{radius_m},{lat},{lon})["boundary"="protected_area"];
-                  relation(around:{radius_m},{lat},{lon})["boundary"="protected_area"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["boundary"="protected_area"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["boundary"="protected_area"];
+                  relation(around:{radius_m},{origin_lat},{origin_lon})["boundary"="protected_area"];
 
-                  node(around:{radius_m},{lat},{lon})["route"="hiking"];
-                  way(around:{radius_m},{lat},{lon})["route"="hiking"];
-                  relation(around:{radius_m},{lat},{lon})["route"="hiking"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["route"="hiking"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["route"="hiking"];
+                  relation(around:{radius_m},{origin_lat},{origin_lon})["route"="hiking"];
 
-                  node(around:{radius_m},{lat},{lon})["tourism"~"viewpoint|attraction"];
-                  way(around:{radius_m},{lat},{lon})["tourism"~"viewpoint|attraction"];
-                  relation(around:{radius_m},{lat},{lon})["tourism"~"viewpoint|attraction"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["tourism"~"viewpoint|attraction"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["tourism"~"viewpoint|attraction"];
+                  relation(around:{radius_m},{origin_lat},{origin_lon})["tourism"~"viewpoint|attraction"];
 
-                  node(around:{radius_m},{lat},{lon})["natural"~"peak|wood"];
-                  way(around:{radius_m},{lat},{lon})["natural"~"peak|wood"];
-                  relation(around:{radius_m},{lat},{lon})["natural"~"peak|wood"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|wood"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|wood"];
+                  relation(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|wood"];
                 );
                 out center tags 80;
                 """
@@ -716,7 +861,7 @@ class NearbyScreen(Screen):
                 )
                 response.raise_for_status()
                 data = response.json()
-                places = self.parse_places(data, lat, lon)
+                places = self.parse_places(data, origin_lat, origin_lon)
                 Clock.schedule_once(lambda *_: self.render_places(places), 0)
             except Exception as exc:
                 Clock.schedule_once(lambda *_: self.render_message(f"No se pudo buscar: {exc}"), 0)
@@ -747,9 +892,9 @@ class NearbyScreen(Screen):
         if not places:
             self.render_message("No encontré resultados en ese rango. Prueba aumentando la distancia.")
             return
-        title_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None, height=dp(86))
-        title_panel.add_widget(TitleLabel(text=f"{len(places)} lugares encontrados", size_hint_y=None, height=dp(34)))
-        title_panel.add_widget(MutedLabel(text="Ordenados desde el más cercano al más lejano según tu GPS.", size_hint_y=None, height=dp(30)))
+        title_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None, height=dp(78))
+        title_panel.add_widget(TitleLabel(text=f"{len(places)} lugares encontrados", size_hint_y=None, height=dp(30), font_size="19sp"))
+        title_panel.add_widget(MutedLabel(text="Ordenados por distancia desde el origen seleccionado.", size_hint_y=None, height=dp(24)))
         self.results_content.add_widget(title_panel)
         for place in places:
             self.results_content.add_widget(PlaceCard(place=place))
@@ -759,33 +904,29 @@ class PlaceCard(RoundedPanel):
     def __init__(self, place: Place, **kwargs: Any) -> None:
         super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, **kwargs)
         self.place = place
-        self.spacing = dp(6)
-        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(52), font_size="20sp")
+        self.spacing = dp(4)
+        self.padding = [dp(12), dp(10), dp(12), dp(10)]
+        self.border_color = (0.78, 0.89, 0.93, 1)
+        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(32), font_size="18sp")
         title.max_lines = 2
-        title.shorten = True
-        title.shorten_from = "right"
-        title.valign = "top"
-        subtitle = BodyLabel(text=f"{place.kind}  ·  {place.distance_km:.1f} km", size_hint_y=None, height=dp(28))
-        coords = MutedLabel(text=f"Coordenadas:\n{place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(38))
-        coords.line_height = 1.15
-        source = MutedLabel(text=f"Fuente: {place.source}", size_hint_y=None, height=dp(24))
-        _bind_label_auto_height(title, dp(44))
-        _bind_label_auto_height(subtitle, dp(24))
-        _bind_label_auto_height(coords, dp(22))
-        _bind_label_auto_height(source, dp(20))
+        title.text_size = (Window.width - dp(72), None)
+        subtitle = BodyLabel(text=f"{place.kind} · {place.distance_km:.1f} km", size_hint_y=None, height=dp(24), font_size="14sp")
+        coords = MutedLabel(text=f"{place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(22), font_size="12sp")
+        source = MutedLabel(text=f"Fuente: {place.source}", size_hint_y=None, height=dp(20), font_size="12sp")
+        _bind_label_auto_height(title, dp(28))
+        _bind_label_auto_height(subtitle, dp(22))
         self.add_widget(title)
         self.add_widget(subtitle)
         self.add_widget(coords)
         self.add_widget(source)
-        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(44))
-        map_btn = SmallButton(text="Ver en mapa")
-        google_btn = SmallButton(text="Google Maps")
+        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(38))
+        map_btn = SmallButton(text="Ver en mapa", height=dp(38))
+        google_btn = SmallButton(text="Google Maps", height=dp(38))
         map_btn.bind(on_release=lambda *_: App.get_running_app().open_place_in_weather(place))
         google_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps(place.lat, place.lon))
         actions.add_widget(map_btn)
         actions.add_widget(google_btn)
         self.add_widget(actions)
-        self.add_widget(Widget(size_hint_y=None, height=dp(2)))
         self.bind(minimum_height=self.setter("height"))
 
 
