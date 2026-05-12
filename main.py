@@ -430,7 +430,7 @@ class HomeScreen(Screen):
 
         grid = GridLayout(cols=2, spacing=dp(10), size_hint_y=None, height=dp(114))
         btn_map = PrimaryButton(text="Mapa + clima")
-        btn_near = PrimaryButton(text="Cercanos")
+        btn_near = PrimaryButton(text="Lugares cercanos")
         btn_route = SecondaryButton(text="Mis rutas\n(próximo)")
         btn_safety = SecondaryButton(text="Seguridad\n(próximo)")
         btn_map.bind(on_release=lambda *_: App.get_running_app().go_to("weather"))
@@ -628,7 +628,7 @@ class NearbyScreen(Screen):
         root = BoxLayout(orientation="vertical")
         root.canvas.before.add(Color(*COLORS["white"]))
         self.add_widget(root)
-        root.add_widget(Header("Cercanos"))
+        root.add_widget(Header("Lugares cercanos"))
 
         controls = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(170), bg_color=COLORS["soft"])
         controls.add_widget(BodyLabel(text="Busca parques, trekkings, senderos y reservas cercanas a tu GPS.", size_hint_y=None, height=dp(30)))
@@ -761,18 +761,23 @@ class PlaceCard(RoundedPanel):
         self.place = place
         self.spacing = dp(6)
         title = TitleLabel(text=place.name, size_hint_y=None, height=dp(52), font_size="20sp")
+        title.max_lines = 2
+        title.shorten = True
+        title.shorten_from = "right"
+        title.valign = "top"
         subtitle = BodyLabel(text=f"{place.kind}  ·  {place.distance_km:.1f} km", size_hint_y=None, height=dp(28))
-        coords = MutedLabel(text=f"Coordenadas: {place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(26))
+        coords = MutedLabel(text=f"Coordenadas:\n{place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(38))
+        coords.line_height = 1.15
         source = MutedLabel(text=f"Fuente: {place.source}", size_hint_y=None, height=dp(24))
-        _bind_label_auto_height(title, dp(52))
-        _bind_label_auto_height(subtitle, dp(28))
-        _bind_label_auto_height(coords, dp(26))
-        _bind_label_auto_height(source, dp(24))
+        _bind_label_auto_height(title, dp(44))
+        _bind_label_auto_height(subtitle, dp(24))
+        _bind_label_auto_height(coords, dp(22))
+        _bind_label_auto_height(source, dp(20))
         self.add_widget(title)
         self.add_widget(subtitle)
         self.add_widget(coords)
         self.add_widget(source)
-        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(42))
+        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(44))
         map_btn = SmallButton(text="Ver en mapa")
         google_btn = SmallButton(text="Google Maps")
         map_btn.bind(on_release=lambda *_: App.get_running_app().open_place_in_weather(place))
@@ -780,6 +785,7 @@ class PlaceCard(RoundedPanel):
         actions.add_widget(map_btn)
         actions.add_widget(google_btn)
         self.add_widget(actions)
+        self.add_widget(Widget(size_hint_y=None, height=dp(2)))
         self.bind(minimum_height=self.setter("height"))
 
 
