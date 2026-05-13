@@ -85,7 +85,7 @@ except Exception:  # pragma: no cover - solo se usa si falta la dependencia
 # Paleta tomada del logo: azul profundo, azul petróleo, celeste/mint claro y blanco.
 COLORS = {
     "navy": (0.03, 0.20, 0.31, 1),       # #08334F aprox.
-    "blue": (0.04, 0.34, 0.48, 1),       # #0A567A aprox.
+    "blue": (17/255, 72/255, 113/255, 1),  # #114871 exacto
     "teal": (0.12, 0.47, 0.58, 1),       # #1F7894 aprox.
     "mint": (0.84, 0.97, 0.94, 1),       # #D6F7F0 aprox.
     "soft": (0.94, 0.98, 0.98, 1),       # fondo suave
@@ -395,87 +395,214 @@ class LocationMap(BoxLayout):
         return False
 
 
+class CollapsibleCategory(RoundedPanel):
+    def __init__(self, title: str, options: list[tuple[str, str]], **kwargs: Any) -> None:
+        super().__init__(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"], **kwargs)
+        self.options = options
+        self.is_open = False
+        self.bind(minimum_height=self.setter("height"))
+
+        self.toggle_btn = PrimaryButton(text=f"{title}  ▾", size_hint_y=None, height=dp(52))
+        self.toggle_btn.bind(on_release=self.toggle)
+        self.add_widget(self.toggle_btn)
+
+        self.options_box = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None, height=0, opacity=0)
+        self.options_box.bind(minimum_height=self.options_box.setter("height"))
+
+        for text_btn, screen in self.options:
+            btn = SecondaryButton(text=text_btn, height=dp(48))
+            btn.bind(on_release=lambda *_ , s=screen: App.get_running_app().go_to(s))
+            self.options_box.add_widget(btn)
+
+        self.add_widget(self.options_box)
+
+    def toggle(self, *_: Any) -> None:
+        self.is_open = not self.is_open
+        self.toggle_btn.text = self.toggle_btn.text[:-1] + ("▴" if self.is_open else "▾")
+        if self.is_open:
+            self.options_box.height = self.options_box.minimum_height
+            self.options_box.opacity = 1
+        else:
+            self.options_box.height = 0
+            self.options_box.opacity = 0
+
+
+class PlaceholderScreen(Screen):
+    def __init__(self, name: str, title: str, features: list[str], note: str = "Función en desarrollo", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.name = name
+
+        root = BoxLayout(orientation="vertical")
+        root.canvas.before.add(Color(*COLORS["white"]))
+        self.add_widget(root)
+        root.add_widget(Header(title))
+
+        scroll = ScrollView()
+        content = BoxLayout(
+            orientation="vertical",
+            spacing=dp(12),
+            padding=[dp(14), dp(20), dp(14), dp(20)],
+            size_hint_y=None,
+        )
+        content.bind(minimum_height=content.setter("height"))
+        scroll.add_widget(content)
+        root.add_widget(scroll)
+
+        hero = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"])
+        hero.padding = [dp(16), dp(16), dp(16), dp(16)]
+        hero.spacing = dp(8)
+        hero.bind(minimum_height=hero.setter("height"))
+        hero.add_widget(TitleLabel(text=title, size_hint_y=None, height=dp(36), font_size="22sp"))
+        hero.add_widget(BodyLabel(text=note, size_hint_y=None, height=dp(28)))
+        hero.add_widget(MutedLabel(text="Próximamente tendrás esta función lista para uso real.", size_hint_y=None, height=dp(26)))
+        content.add_widget(hero)
+
+        future = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["white"])
+        future.padding = [dp(16), dp(16), dp(16), dp(16)]
+        future.spacing = dp(8)
+        future.bind(minimum_height=future.setter("height"))
+        future.add_widget(BodyLabel(text="Funciones futuras", size_hint_y=None, height=dp(30)))
+        for item in features:
+            feature_line = MutedLabel(text=f"• {item}", size_hint_y=None, height=dp(24))
+            _bind_label_auto_height(feature_line, dp(24))
+            future.add_widget(feature_line)
+        content.add_widget(future)
+
+        back_btn = PrimaryButton(text="Volver al inicio", size_hint_y=None, height=dp(52))
+        back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
+        content.add_widget(back_btn)
+
+
+class EmergencyScreen(Screen):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.name = "emergency"
+
+        root = BoxLayout(orientation="vertical")
+        root.canvas.before.add(Color(*COLORS["white"]))
+        self.add_widget(root)
+        root.add_widget(Header("Emergencia"))
+
+        scroll = ScrollView()
+        content = BoxLayout(
+            orientation="vertical",
+            spacing=dp(12),
+            padding=[dp(14), dp(20), dp(14), dp(20)],
+            size_hint_y=None,
+        )
+        content.bind(minimum_height=content.setter("height"))
+        scroll.add_widget(content)
+        root.add_widget(scroll)
+
+        warning = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"])
+        warning.padding = [dp(16), dp(16), dp(16), dp(16)]
+        warning.bind(minimum_height=warning.setter("height"))
+        warning.add_widget(TitleLabel(text="Números de emergencia", size_hint_y=None, height=dp(34), font_size="21sp"))
+        warning.add_widget(MutedLabel(text="En una emergencia real, llama directamente al número correspondiente.", size_hint_y=None, height=dp(46)))
+        content.add_widget(warning)
+
+        contacts = [
+            ("CONAF / incendios forestales", "130"),
+            ("SAMU / Ambulancia", "131"),
+            ("Bomberos", "132"),
+            ("Carabineros", "133"),
+            ("PDI", "134"),
+            ("Socorro Andino / rescate montaña", "136"),
+            ("Emergencia marítima", "137"),
+            ("Rescate aéreo", "138"),
+        ]
+        grid = GridLayout(cols=1, spacing=dp(8), size_hint_y=None)
+        grid.bind(minimum_height=grid.setter("height"))
+        for label, number in contacts:
+            card = RoundedPanel(orientation="horizontal", size_hint_y=None, height=dp(58), bg_color=COLORS["white"])
+            card.padding = [dp(14), dp(12), dp(14), dp(12)]
+            card.add_widget(BodyLabel(text=label))
+            card.add_widget(TitleLabel(text=number, size_hint_x=None, width=dp(64), font_size="20sp"))
+            grid.add_widget(card)
+        content.add_widget(grid)
+
+        tools = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["white"])
+        tools.bind(minimum_height=tools.setter("height"))
+        tools.add_widget(BodyLabel(text="Acciones rápidas (placeholder)", size_hint_y=None, height=dp(30)))
+        tools.add_widget(SecondaryButton(text="Copiar coordenadas actuales"))
+        tools.add_widget(SecondaryButton(text="Enviar ubicación a contacto"))
+        content.add_widget(tools)
+
+        back_btn = PrimaryButton(text="Volver al inicio")
+        back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
+        content.add_widget(back_btn)
+
+
+class DownloadMapScreen(Screen):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.name = "download_map"
+
+        root = BoxLayout(orientation="vertical")
+        root.canvas.before.add(Color(*COLORS["white"]))
+        self.add_widget(root)
+        root.add_widget(Header("Descargar mapa"))
+
+        scroll = ScrollView()
+        content = BoxLayout(orientation="vertical", spacing=dp(12), padding=[dp(14), dp(20), dp(14), dp(20)], size_hint_y=None)
+        content.bind(minimum_height=content.setter("height"))
+        scroll.add_widget(content)
+        root.add_widget(scroll)
+
+        panel = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"])
+        panel.bind(minimum_height=panel.setter("height"))
+        panel.add_widget(TitleLabel(text="Modo de descarga", size_hint_y=None, height=dp(34), font_size="21sp"))
+        panel.add_widget(OriginModeButton(text="Modo mapa", group="map_mode", state="down"))
+        panel.add_widget(OriginModeButton(text="Modo satelital", group="map_mode"))
+        panel.add_widget(PrimaryButton(text="Descargar zona"))
+        panel.add_widget(MutedLabel(text="La descarga real se implementará en una próxima versión.", size_hint_y=None, height=dp(36)))
+        content.add_widget(panel)
+
+        info = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["white"])
+        info.bind(minimum_height=info.setter("height"))
+        info.add_widget(BodyLabel(text="Próximamente", size_hint_y=None, height=dp(30)))
+        info.add_widget(MutedLabel(text="• Guardar zonas favoritas para uso offline"))
+        info.add_widget(MutedLabel(text="• Administrar descargas por región"))
+        info.add_widget(MutedLabel(text="• Ver estado de almacenamiento"))
+        content.add_widget(info)
+
+        back_btn = PrimaryButton(text="Volver al inicio")
+        back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
+        content.add_widget(back_btn)
+
+
 class HomeScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.name = "home"
-        self.has_centered_on_gps = False
 
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
+        root = BoxLayout(orientation="vertical")
         root.canvas.before.add(Color(*COLORS["white"]))
         self.add_widget(root)
 
-        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_y=None, height=dp(110))
-        root.add_widget(logo)
+        scroll = ScrollView()
+        content = BoxLayout(orientation="vertical", spacing=dp(12), padding=[dp(14), dp(20), dp(14), dp(20)], size_hint_y=None)
+        content.bind(minimum_height=content.setter("height"))
+        scroll.add_widget(content)
+        root.add_widget(scroll)
 
-        title = Label(
-            text="CumbrePark",
-            color=COLORS["navy"],
-            font_size="34sp",
-            bold=True,
-            size_hint_y=None,
-            height=dp(42),
-        )
-        root.add_widget(title)
+        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_y=None, height=dp(90))
+        content.add_widget(logo)
+        content.add_widget(TitleLabel(text="CumbrePark", size_hint_y=None, height=dp(42), font_size="34sp"))
+        content.add_widget(MutedLabel(text="Explora, registra y comparte tus rutas outdoor.", size_hint_y=None, height=dp(30)))
 
-        subtitle = Label(
-            text="Parques, senderos, clima y ubicación para explorar con más seguridad.",
-            color=COLORS["muted"],
-            font_size="14sp",
-            halign="center",
-            valign="middle",
-            size_hint_y=None,
-            height=dp(42),
-        )
-        subtitle.bind(size=subtitle.setter("text_size"))
-        root.add_widget(subtitle)
+        categories = [
+            ("Explorar", [("Mapa + clima", "weather"), ("Lugares cercanos", "nearby"), ("Mapas sin internet", "offline_maps"), ("Descargar mapa", "download_map")]),
+            ("Seguridad", [("Emergencia", "emergency"), ("Compartir ubicación en vivo", "live_location"), ("Contactos de emergencia", "emergency_contacts"), ("Estado de ruta / avisos", "route_alerts")]),
+            ("Actividad", [("Registrar actividad", "register_activity"), ("Mis rutas", "my_routes"), ("Historial deportivo", "sports_history"), ("Ranking mensual", "monthly_ranking")]),
+            ("Comunidad", [("Comunidad", "community"), ("Marketplace deportivo", "marketplace"), ("Compartir en Instagram", "instagram_share"), ("Conectar Spotify", "spotify_connect")]),
+            ("Perfil", [("Crear perfil", "create_profile"), ("Preferencias deportivas", "sport_preferences"), ("Nivel y dificultad sugerida", "difficulty_level"), ("Configuración", "settings_screen")]),
+        ]
 
-        grid = GridLayout(cols=2, spacing=dp(10), size_hint_y=None, height=dp(114))
-        btn_map = PrimaryButton(text="Mapa + clima")
-        btn_near = PrimaryButton(text="Lugares cercanos")
-        btn_route = SecondaryButton(text="Mis rutas\n(próximo)")
-        btn_safety = SecondaryButton(text="Seguridad\n(próximo)")
-        btn_map.bind(on_release=lambda *_: App.get_running_app().go_to("weather"))
-        btn_near.bind(on_release=lambda *_: App.get_running_app().go_to("nearby"))
-        grid.add_widget(btn_map)
-        grid.add_widget(btn_near)
-        grid.add_widget(btn_route)
-        grid.add_widget(btn_safety)
-        root.add_widget(grid)
+        for title, options in categories:
+            content.add_widget(CollapsibleCategory(title=title, options=options))
 
-        panel = RoundedPanel(orientation="vertical", size_hint_y=0.48, bg_color=COLORS["soft"])
-        panel.add_widget(BodyLabel(text="Ubicación en vivo", size_hint_y=None, height=dp(24)))
-        self.status_label = MutedLabel(text="Puedes activar GPS para centrar el mapa en tu ubicación.", size_hint_y=None, height=dp(38))
-        panel.add_widget(self.status_label)
 
-        self.map_preview = LocationMap(size_hint_y=1)
-        panel.add_widget(self.map_preview)
-
-        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(44))
-        gps_btn = SmallButton(text="Usar mi ubicación")
-        maps_btn = SmallButton(text="Abrir Google Maps")
-        gps_btn.bind(on_release=lambda *_: self.request_home_gps())
-        maps_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps())
-        actions.add_widget(gps_btn)
-        actions.add_widget(maps_btn)
-        panel.add_widget(actions)
-        root.add_widget(panel)
-
-    def request_home_gps(self) -> None:
-        # V.0.1.1:
-        # Al pedir ubicación desde el inicio, centramos el mapa una vez.
-        # Luego dejamos que la persona pueda mover el mapa sin que vuelva solo.
-        self.has_centered_on_gps = False
-        App.get_running_app().request_gps()
-
-    def on_location_update(self, lat: float, lon: float) -> None:
-        should_center = not self.has_centered_on_gps
-        self.map_preview.set_marker(lat, lon, center=should_center)
-        self.has_centered_on_gps = True
-        self.status_label.text = f"GPS activo: {lat:.5f}, {lon:.5f}"
-
-    def set_status(self, message: str) -> None:
-        self.status_label.text = message
 
 
 class WeatherScreen(Screen):
@@ -951,6 +1078,24 @@ class CumbreParkApp(App):
         self.sm.add_widget(HomeScreen())
         self.sm.add_widget(WeatherScreen())
         self.sm.add_widget(NearbyScreen())
+        self.sm.add_widget(DownloadMapScreen())
+        self.sm.add_widget(EmergencyScreen())
+        self.sm.add_widget(PlaceholderScreen(name="offline_maps", title="Mapas sin internet", features=["Guardar mapas para rutas frecuentes", "Navegación básica sin señal", "Sincronización automática al recuperar red"]))
+        self.sm.add_widget(PlaceholderScreen(name="live_location", title="Compartir ubicación en vivo", features=["Compartir ubicación por tiempo limitado", "Enlace seguro para contactos", "Estado de batería y señal"]))
+        self.sm.add_widget(PlaceholderScreen(name="emergency_contacts", title="Contactos de emergencia", features=["Agregar contactos prioritarios", "Atajos para llamadas rápidas", "Notificación automática con ubicación"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="route_alerts", title="Estado de ruta / avisos", features=["Alertas por clima extremo", "Avisos de cierre temporal", "Historial de incidentes por zona"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="register_activity", title="Registrar actividad", features=["Iniciar y pausar actividad", "Resumen de distancia y tiempo", "Exportar recorrido"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="my_routes", title="Mis rutas", features=["Rutas guardadas", "Notas y fotos por ruta", "Recomendaciones de dificultad"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="sports_history", title="Historial deportivo", features=["Sesiones recientes", "Evolución semanal", "Comparativa mensual"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="monthly_ranking", title="Ranking mensual", features=["Top por distancia", "Top por desnivel", "Retos del mes"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="community", title="Comunidad", features=["Feed de publicaciones", "Clubes y grupos", "Eventos cercanos"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="marketplace", title="Marketplace deportivo", features=["Compra y venta de equipo", "Filtros por deporte", "Valoraciones entre usuarios"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="instagram_share", title="Compartir en Instagram", features=["Plantillas para stories", "Etiquetas automáticas", "Resumen visual de actividad"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="spotify_connect", title="Conectar Spotify", features=["Playlists para entrenamiento", "Control básico desde la app", "Música sugerida por ritmo"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="create_profile", title="Crear perfil", features=["Datos personales outdoor", "Avatar y bio", "Objetivos deportivos"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="sport_preferences", title="Preferencias deportivas", features=["Deportes favoritos", "Nivel actual", "Frecuencia semanal"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="difficulty_level", title="Nivel y dificultad sugerida", features=["Evaluación inicial", "Sugerencias por terreno", "Progresión personalizada"], note="Próximamente"))
+        self.sm.add_widget(PlaceholderScreen(name="settings_screen", title="Configuración", features=["Notificaciones", "Unidades de medida", "Privacidad y permisos"], note="Próximamente"))
         return self.sm
 
     def go_to(self, screen_name: str) -> None:
