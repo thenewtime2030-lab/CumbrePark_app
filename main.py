@@ -407,7 +407,6 @@ class CollapsibleCategory(RoundedPanel):
         self.add_widget(self.toggle_btn)
 
         self.options_box = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None, height=0, opacity=0)
-        self.options_box.bind(minimum_height=self.options_box.setter("height"))
 
         for text_btn, screen in self.options:
             btn = SecondaryButton(text=text_btn, height=dp(48))
@@ -425,6 +424,7 @@ class CollapsibleCategory(RoundedPanel):
         else:
             self.options_box.height = 0
             self.options_box.opacity = 0
+        self.height = self.minimum_height
 
 
 class PlaceholderScreen(Screen):
