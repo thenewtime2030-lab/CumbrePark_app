@@ -580,33 +580,112 @@ class HomeScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.name = "home"
+        self.status_label: Optional[Label] = None
+
+        bg_dark = (7/255, 16/255, 24/255, 1)        # #071018
+        card_dark = (16/255, 26/255, 36/255, 1)     # #101A24
+        brand_blue = (17/255, 72/255, 113/255, 1)   # #114871
+        sport_blue = (23/255, 106/255, 154/255, 1)  # #176A9A
+        accent = (183/255, 255/255, 74/255, 1)      # #B7FF4A
+        white = (1, 1, 1, 1)
+        muted = (170/255, 183/255, 194/255, 1)      # #AAB7C2
 
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        with root.canvas.before:
+            Color(*bg_dark)
+            self._home_bg = RoundedRectangle(pos=root.pos, size=root.size)
+        root.bind(pos=lambda *_: self._sync_home_bg(root), size=lambda *_: self._sync_home_bg(root))
         self.add_widget(root)
 
-        scroll = ScrollView()
-        content = BoxLayout(orientation="vertical", spacing=dp(12), padding=[dp(14), dp(20), dp(14), dp(20)], size_hint_y=None)
+        scroll = ScrollView(do_scroll_x=False, bar_width=dp(3), scroll_type=["bars", "content"])
+        content = BoxLayout(
+            orientation="vertical",
+            spacing=dp(14),
+            padding=[dp(16), dp(40), dp(16), dp(36)],
+            size_hint_y=None,
+        )
         content.bind(minimum_height=content.setter("height"))
         scroll.add_widget(content)
         root.add_widget(scroll)
 
-        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_y=None, height=dp(90))
-        content.add_widget(logo)
-        content.add_widget(TitleLabel(text="CumbrePark", size_hint_y=None, height=dp(42), font_size="34sp"))
-        content.add_widget(MutedLabel(text="Explora, registra y comparte tus rutas outdoor.", size_hint_y=None, height=dp(30)))
+        hero = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(168), bg_color=brand_blue, border_color=sport_blue)
+        hero.padding = [dp(16), dp(14), dp(16), dp(14)]
+        hero.spacing = dp(8)
+        hero.add_widget(Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint=(None, None), size=(dp(46), dp(46))))
+        hero.add_widget(Label(text="CumbrePark", color=white, bold=True, font_size="32sp", halign="left", valign="middle", size_hint_y=None, height=dp(44), text_size=(dp(280), None)))
+        hero.add_widget(Label(text="Explora. Registra. Comparte.", color=muted, font_size="15sp", halign="left", valign="middle", size_hint_y=None, height=dp(24), text_size=(dp(280), None)))
+        content.add_widget(hero)
 
-        categories = [
-            ("Explorar", [("Mapa + clima", "weather"), ("Lugares cercanos", "nearby"), ("Mapas sin internet", "offline_maps"), ("Descargar mapa", "download_map")]),
-            ("Seguridad", [("Emergencia", "emergency"), ("Compartir ubicación en vivo", "live_location"), ("Contactos de emergencia", "emergency_contacts"), ("Estado de ruta / avisos", "route_alerts")]),
-            ("Actividad", [("Registrar actividad", "register_activity"), ("Mis rutas", "my_routes"), ("Historial deportivo", "sports_history"), ("Ranking mensual", "monthly_ranking")]),
-            ("Comunidad", [("Comunidad", "community"), ("Marketplace deportivo", "marketplace"), ("Compartir en Instagram", "instagram_share"), ("Conectar Spotify", "spotify_connect")]),
-            ("Perfil", [("Crear perfil", "create_profile"), ("Preferencias deportivas", "sport_preferences"), ("Nivel y dificultad sugerida", "difficulty_level"), ("Configuración", "settings_screen")]),
+        lead = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(150), bg_color=card_dark, border_color=sport_blue)
+        lead.padding = [dp(16), dp(16), dp(16), dp(16)]
+        lead.spacing = dp(8)
+        lead.add_widget(Label(text="Tu próxima ruta empieza acá", color=white, bold=True, font_size="24sp", halign="left", valign="middle", size_hint_y=None, height=dp(40), text_size=(dp(290), None)))
+        lead.add_widget(Label(text="Planifica, registra y comparte tus aventuras outdoor.", color=muted, font_size="15sp", halign="left", valign="middle", size_hint_y=None, height=dp(44), text_size=(dp(290), None)))
+        content.add_widget(lead)
+
+        quick_actions = GridLayout(cols=3, spacing=dp(10), size_hint_y=None, height=dp(98))
+        for action in ("Mapa + clima", "Emergencia", "Registrar actividad"):
+            btn = Button(
+                text=action,
+                background_normal="",
+                background_down="",
+                background_color=sport_blue,
+                color=white,
+                bold=True,
+                font_size="14sp",
+            )
+            btn.bind(on_release=lambda *_ , a=action: self.show_feature_disabled(a))
+            quick_actions.add_widget(btn)
+        content.add_widget(quick_actions)
+
+        modules = [
+            ("Explorar", "Mapas, clima y lugares cercanos"),
+            ("Seguridad", "Emergencia, ubicación y avisos"),
+            ("Actividad", "Rutas, distancia, desnivel y tiempo"),
+            ("Comunidad", "Ranking, marketplace y grupos"),
+            ("Perfil", "Preferencias, nivel y experiencia"),
         ]
 
-        for title, options in categories:
-            content.add_widget(CollapsibleCategory(title=title, options=options))
+        for title, subtitle in modules:
+            card = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(104), bg_color=card_dark, border_color=(0.12, 0.20, 0.27, 1))
+            card.padding = [dp(14), dp(12), dp(14), dp(12)]
+            card.spacing = dp(4)
+            card.add_widget(Label(text=title, color=white, bold=True, font_size="20sp", halign="left", valign="middle", size_hint_y=None, height=dp(34), text_size=(dp(290), None)))
+            card.add_widget(Label(text=subtitle, color=muted, font_size="14sp", halign="left", valign="middle", size_hint_y=None, height=dp(24), text_size=(dp(290), None)))
+            ghost_btn = Button(
+                text="Ver módulo",
+                size_hint_y=None,
+                height=dp(30),
+                background_normal="",
+                background_down="",
+                background_color=(0, 0, 0, 0),
+                color=accent,
+                bold=True,
+                font_size="13sp",
+            )
+            ghost_btn.bind(on_release=lambda *_ , m=title: self.show_feature_disabled(m))
+            card.add_widget(ghost_btn)
+            content.add_widget(card)
 
+        self.status_label = Label(
+            text="Inicio visual estable V.0.2.1. Las funciones avanzadas están en diseño.",
+            color=accent,
+            font_size="13sp",
+            halign="center",
+            valign="middle",
+            size_hint_y=None,
+            height=dp(28),
+            text_size=(dp(320), None),
+        )
+        content.add_widget(self.status_label)
+
+    def _sync_home_bg(self, root: BoxLayout) -> None:
+        self._home_bg.pos = root.pos
+        self._home_bg.size = root.size
+
+    def show_feature_disabled(self, name: str) -> None:
+        if self.status_label:
+            self.status_label.text = f"{name}: Función en diseño"
 
 
 
