@@ -608,19 +608,36 @@ class HomeScreen(Screen):
         scroll.add_widget(content)
         root.add_widget(scroll)
 
+        def _centered_text_label(text: str, color: tuple[float, float, float, float], font_size: str, height: float, bold: bool = False) -> Label:
+            label = Label(
+                text=text,
+                color=color,
+                bold=bold,
+                font_size=font_size,
+                halign="center",
+                valign="middle",
+                size_hint_y=None,
+                height=height,
+            )
+            label.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
+            Clock.schedule_once(lambda *_: setattr(label, "text_size", (label.width, label.height)), 0)
+            return label
+
         hero = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(168), bg_color=brand_blue, border_color=sport_blue)
         hero.padding = [dp(16), dp(14), dp(16), dp(14)]
         hero.spacing = dp(8)
-        hero.add_widget(Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint=(None, None), size=(dp(46), dp(46))))
-        hero.add_widget(Label(text="CumbrePark", color=white, bold=True, font_size="32sp", halign="left", valign="middle", size_hint_y=None, height=dp(44), text_size=(dp(280), None)))
-        hero.add_widget(Label(text="Explora. Registra. Comparte.", color=muted, font_size="15sp", halign="left", valign="middle", size_hint_y=None, height=dp(24), text_size=(dp(280), None)))
+        hero_logo_wrap = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None, height=dp(46))
+        hero_logo_wrap.add_widget(Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint=(None, None), size=(dp(46), dp(46))))
+        hero.add_widget(hero_logo_wrap)
+        hero.add_widget(_centered_text_label("CumbrePark", white, "32sp", dp(44), bold=True))
+        hero.add_widget(_centered_text_label("Explora. Registra. Comparte.", muted, "15sp", dp(24)))
         content.add_widget(hero)
 
         lead = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(150), bg_color=card_dark, border_color=sport_blue)
         lead.padding = [dp(16), dp(16), dp(16), dp(16)]
         lead.spacing = dp(8)
-        lead.add_widget(Label(text="Tu próxima ruta empieza acá", color=white, bold=True, font_size="24sp", halign="left", valign="middle", size_hint_y=None, height=dp(40), text_size=(dp(290), None)))
-        lead.add_widget(Label(text="Planifica, registra y comparte tus aventuras outdoor.", color=muted, font_size="15sp", halign="left", valign="middle", size_hint_y=None, height=dp(44), text_size=(dp(290), None)))
+        lead.add_widget(_centered_text_label("Tu próxima ruta empieza acá", white, "24sp", dp(40), bold=True))
+        lead.add_widget(_centered_text_label("Planifica, registra y comparte tus aventuras outdoor.", muted, "15sp", dp(44)))
         content.add_widget(lead)
 
         quick_actions = GridLayout(cols=3, spacing=dp(10), size_hint_y=None, height=dp(98))
@@ -633,7 +650,10 @@ class HomeScreen(Screen):
                 color=white,
                 bold=True,
                 font_size="14sp",
+                halign="center",
+                valign="middle",
             )
+            btn.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width - dp(10), instance.height - dp(10))))
             btn.bind(on_release=lambda *_ , a=action: self.show_feature_disabled(a))
             quick_actions.add_widget(btn)
         content.add_widget(quick_actions)
@@ -650,8 +670,8 @@ class HomeScreen(Screen):
             card = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(104), bg_color=card_dark, border_color=(0.12, 0.20, 0.27, 1))
             card.padding = [dp(14), dp(12), dp(14), dp(12)]
             card.spacing = dp(4)
-            card.add_widget(Label(text=title, color=white, bold=True, font_size="20sp", halign="left", valign="middle", size_hint_y=None, height=dp(34), text_size=(dp(290), None)))
-            card.add_widget(Label(text=subtitle, color=muted, font_size="14sp", halign="left", valign="middle", size_hint_y=None, height=dp(24), text_size=(dp(290), None)))
+            card.add_widget(_centered_text_label(title, white, "20sp", dp(34), bold=True))
+            card.add_widget(_centered_text_label(subtitle, muted, "14sp", dp(24)))
             ghost_btn = Button(
                 text="Ver módulo",
                 size_hint_y=None,
@@ -662,7 +682,10 @@ class HomeScreen(Screen):
                 color=accent,
                 bold=True,
                 font_size="13sp",
+                halign="center",
+                valign="middle",
             )
+            ghost_btn.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
             ghost_btn.bind(on_release=lambda *_ , m=title: self.show_feature_disabled(m))
             card.add_widget(ghost_btn)
             content.add_widget(card)
@@ -675,8 +698,10 @@ class HomeScreen(Screen):
             valign="middle",
             size_hint_y=None,
             height=dp(28),
-            text_size=(dp(320), None),
+            text_size=(0, 0),
         )
+        self.status_label.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
+        Clock.schedule_once(lambda *_: setattr(self.status_label, "text_size", (self.status_label.width, self.status_label.height)), 0)
         content.add_widget(self.status_label)
 
     def _sync_home_bg(self, root: BoxLayout) -> None:
