@@ -400,13 +400,16 @@ class CollapsibleCategory(RoundedPanel):
         super().__init__(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"], **kwargs)
         self.options = options
         self.is_open = False
-        self.bind(minimum_height=self.setter("height"))
+        self._base_height = dp(52) + self.padding[1] + self.padding[3]
+        self._option_height = dp(48)
+        self._option_spacing = dp(8)
+        self.height = self._base_height
 
         self.toggle_btn = PrimaryButton(text=f"{title}  ▾", size_hint_y=None, height=dp(52))
         self.toggle_btn.bind(on_release=self.toggle)
         self.add_widget(self.toggle_btn)
 
-        self.options_box = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None, height=0, opacity=0)
+        self.options_box = BoxLayout(orientation="vertical", spacing=self._option_spacing, size_hint_y=None, height=0, opacity=0)
 
         for text_btn, screen in self.options:
             btn = SecondaryButton(text=text_btn, height=dp(48))
@@ -419,12 +422,14 @@ class CollapsibleCategory(RoundedPanel):
         self.is_open = not self.is_open
         self.toggle_btn.text = self.toggle_btn.text[:-1] + ("▴" if self.is_open else "▾")
         if self.is_open:
-            self.options_box.height = self.options_box.minimum_height
+            options_count = len(self.options)
+            self.options_box.height = (options_count * self._option_height) + (max(0, options_count - 1) * self._option_spacing)
             self.options_box.opacity = 1
+            self.height = self._base_height + self.options_box.height + self.spacing
         else:
             self.options_box.height = 0
             self.options_box.opacity = 0
-        self.height = self.minimum_height
+            self.height = self._base_height
 
 
 class PlaceholderScreen(Screen):
@@ -1029,19 +1034,17 @@ class NearbyScreen(Screen):
 
 class PlaceCard(RoundedPanel):
     def __init__(self, place: Place, **kwargs: Any) -> None:
-        super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, **kwargs)
+        super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, height=dp(176), **kwargs)
         self.place = place
         self.spacing = dp(4)
         self.padding = [dp(12), dp(10), dp(12), dp(10)]
         self.border_color = (0.78, 0.89, 0.93, 1)
-        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(32), font_size="18sp")
+        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(44), font_size="18sp")
         title.max_lines = 2
-        title.text_size = (Window.width - dp(72), None)
-        subtitle = BodyLabel(text=f"{place.kind} · {place.distance_km:.1f} km", size_hint_y=None, height=dp(24), font_size="14sp")
+        title.text_size = (Window.width - dp(72), dp(44))
+        subtitle = BodyLabel(text=f"{place.kind} · {place.distance_km:.1f} km", size_hint_y=None, height=dp(26), font_size="14sp")
         coords = MutedLabel(text=f"{place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(22), font_size="12sp")
         source = MutedLabel(text=f"Fuente: {place.source}", size_hint_y=None, height=dp(20), font_size="12sp")
-        _bind_label_auto_height(title, dp(28))
-        _bind_label_auto_height(subtitle, dp(22))
         self.add_widget(title)
         self.add_widget(subtitle)
         self.add_widget(coords)
@@ -1054,7 +1057,6 @@ class PlaceCard(RoundedPanel):
         actions.add_widget(map_btn)
         actions.add_widget(google_btn)
         self.add_widget(actions)
-        self.bind(minimum_height=self.setter("height"))
 
 
 class CumbreParkApp(App):
