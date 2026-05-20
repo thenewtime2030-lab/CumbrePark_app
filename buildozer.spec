@@ -7,7 +7,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
 source.exclude_dirs = tests, bin, venv, .venv, __pycache__
 
-version = 0.2.1.2
+version = 0.2.2.0
 
 requirements = python3,kivy,requests,plyer,kivy_garden.mapview,certifi,charset-normalizer,idna,urllib3
 
