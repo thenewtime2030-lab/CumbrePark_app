@@ -628,7 +628,6 @@ class HomeScreen(Screen):
             title: str,
             subtitle: str,
             footer: str,
-            on_tap: Callable[[], None],
             height: float,
             card_color: tuple[float, float, float, float],
             border_color: tuple[float, float, float, float],
@@ -643,12 +642,6 @@ class HomeScreen(Screen):
             card.add_widget(_centered_text_label(subtitle, muted, "14sp", dp(24)))
             card.add_widget(_centered_text_label(footer, accent, "13sp", dp(24), bold=True))
             wrap.add_widget(card)
-
-            hit_area = Button(background_normal="", background_down="", background_color=(0, 0, 0, 0), text="")
-            hit_area.size_hint = (1, 1)
-            hit_area.pos_hint = {"x": 0, "y": 0}
-            hit_area.bind(on_release=lambda *_: on_tap())
-            wrap.add_widget(hit_area)
             return wrap
 
         hero = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(168), bg_color=brand_blue, border_color=sport_blue)
@@ -675,7 +668,6 @@ class HomeScreen(Screen):
                     title=action,
                     subtitle="Acción rápida",
                     footer="Disponible pronto",
-                    on_tap=lambda a=action: self.show_feature_disabled(a),
                     height=dp(114),
                     card_color=sport_blue,
                     border_color=sport_blue,
@@ -697,7 +689,6 @@ class HomeScreen(Screen):
                     title=title,
                     subtitle=subtitle,
                     footer="Ver módulo",
-                    on_tap=lambda m=title: self.show_feature_disabled(m),
                     height=dp(112),
                     card_color=card_dark,
                     border_color=(0.12, 0.20, 0.27, 1),
