@@ -38,6 +38,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
+from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.slider import Slider
 from kivy.uix.widget import Widget
@@ -623,6 +624,33 @@ class HomeScreen(Screen):
             Clock.schedule_once(lambda *_: setattr(label, "text_size", (label.width, label.height)), 0)
             return label
 
+        def _build_tappable_card(
+            title: str,
+            subtitle: str,
+            footer: str,
+            on_tap: Callable[[], None],
+            height: float,
+            card_color: tuple[float, float, float, float],
+            border_color: tuple[float, float, float, float],
+        ) -> RelativeLayout:
+            wrap = RelativeLayout(size_hint_y=None, height=height)
+            card = RoundedPanel(orientation="vertical", bg_color=card_color, border_color=border_color)
+            card.size_hint = (1, 1)
+            card.pos_hint = {"x": 0, "y": 0}
+            card.padding = [dp(14), dp(12), dp(14), dp(12)]
+            card.spacing = dp(4)
+            card.add_widget(_centered_text_label(title, white, "20sp", dp(32), bold=True))
+            card.add_widget(_centered_text_label(subtitle, muted, "14sp", dp(24)))
+            card.add_widget(_centered_text_label(footer, accent, "13sp", dp(24), bold=True))
+            wrap.add_widget(card)
+
+            hit_area = Button(background_normal="", background_down="", background_color=(0, 0, 0, 0), text="")
+            hit_area.size_hint = (1, 1)
+            hit_area.pos_hint = {"x": 0, "y": 0}
+            hit_area.bind(on_release=lambda *_: on_tap())
+            wrap.add_widget(hit_area)
+            return wrap
+
         hero = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(168), bg_color=brand_blue, border_color=sport_blue)
         hero.padding = [dp(16), dp(14), dp(16), dp(14)]
         hero.spacing = dp(8)
@@ -640,22 +668,19 @@ class HomeScreen(Screen):
         lead.add_widget(_centered_text_label("Planifica, registra y comparte tus aventuras outdoor.", muted, "15sp", dp(44)))
         content.add_widget(lead)
 
-        quick_actions = GridLayout(cols=3, spacing=dp(10), size_hint_y=None, height=dp(98))
+        quick_actions = GridLayout(cols=3, spacing=dp(10), size_hint_y=None, height=dp(114))
         for action in ("Mapa + clima", "Emergencia", "Registrar actividad"):
-            btn = Button(
-                text=action,
-                background_normal="",
-                background_down="",
-                background_color=sport_blue,
-                color=white,
-                bold=True,
-                font_size="14sp",
-                halign="center",
-                valign="middle",
+            quick_actions.add_widget(
+                _build_tappable_card(
+                    title=action,
+                    subtitle="Acción rápida",
+                    footer="Disponible pronto",
+                    on_tap=lambda a=action: self.show_feature_disabled(a),
+                    height=dp(114),
+                    card_color=sport_blue,
+                    border_color=sport_blue,
+                )
             )
-            btn.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width - dp(10), instance.height - dp(10))))
-            btn.bind(on_release=lambda *_ , a=action: self.show_feature_disabled(a))
-            quick_actions.add_widget(btn)
         content.add_widget(quick_actions)
 
         modules = [
@@ -667,28 +692,17 @@ class HomeScreen(Screen):
         ]
 
         for title, subtitle in modules:
-            card = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(104), bg_color=card_dark, border_color=(0.12, 0.20, 0.27, 1))
-            card.padding = [dp(14), dp(12), dp(14), dp(12)]
-            card.spacing = dp(4)
-            card.add_widget(_centered_text_label(title, white, "20sp", dp(34), bold=True))
-            card.add_widget(_centered_text_label(subtitle, muted, "14sp", dp(24)))
-            ghost_btn = Button(
-                text="Ver módulo",
-                size_hint_y=None,
-                height=dp(30),
-                background_normal="",
-                background_down="",
-                background_color=(0, 0, 0, 0),
-                color=accent,
-                bold=True,
-                font_size="13sp",
-                halign="center",
-                valign="middle",
+            content.add_widget(
+                _build_tappable_card(
+                    title=title,
+                    subtitle=subtitle,
+                    footer="Ver módulo",
+                    on_tap=lambda m=title: self.show_feature_disabled(m),
+                    height=dp(112),
+                    card_color=card_dark,
+                    border_color=(0.12, 0.20, 0.27, 1),
+                )
             )
-            ghost_btn.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
-            ghost_btn.bind(on_release=lambda *_ , m=title: self.show_feature_disabled(m))
-            card.add_widget(ghost_btn)
-            content.add_widget(card)
 
         self.status_label = Label(
             text="Inicio visual estable V.0.2.1. Las funciones avanzadas están en diseño.",
