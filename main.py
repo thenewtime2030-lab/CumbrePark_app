@@ -581,8 +581,12 @@ class HomeScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.name = "home"
-        self.status_label: Optional[Label] = None
 
+        # V.0.2.2.4:
+        # Inicio 100% estático. Se elimina ScrollView y cualquier capa táctil.
+        # El bug observado era compatible con el desplazamiento natural/inercial
+        # del ScrollView al tocar/arrastrar tarjetas visuales. Para la maqueta,
+        # nada del HomeScreen debe capturar toques ni modificar layout.
         bg_dark = (7/255, 16/255, 24/255, 1)        # #071018
         card_dark = (16/255, 26/255, 36/255, 1)     # #101A24
         brand_blue = (17/255, 72/255, 113/255, 1)   # #114871
@@ -598,18 +602,20 @@ class HomeScreen(Screen):
         root.bind(pos=lambda *_: self._sync_home_bg(root), size=lambda *_: self._sync_home_bg(root))
         self.add_widget(root)
 
-        scroll = ScrollView(do_scroll_x=False, bar_width=dp(3), scroll_type=["bars", "content"])
         content = BoxLayout(
             orientation="vertical",
-            spacing=dp(14),
-            padding=[dp(16), dp(40), dp(16), dp(36)],
-            size_hint_y=None,
+            spacing=dp(10),
+            padding=[dp(16), dp(34), dp(16), dp(20)],
         )
-        content.bind(minimum_height=content.setter("height"))
-        scroll.add_widget(content)
-        root.add_widget(scroll)
+        root.add_widget(content)
 
-        def _centered_text_label(text: str, color: tuple[float, float, float, float], font_size: str, height: float, bold: bool = False) -> Label:
+        def _centered_text_label(
+            text: str,
+            color: tuple[float, float, float, float],
+            font_size: str,
+            height: float,
+            bold: bool = False,
+        ) -> Label:
             label = Label(
                 text=text,
                 color=color,
@@ -619,104 +625,148 @@ class HomeScreen(Screen):
                 valign="middle",
                 size_hint_y=None,
                 height=height,
+                shorten=True,
+                shorten_from="right",
             )
             label.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
             Clock.schedule_once(lambda *_: setattr(label, "text_size", (label.width, label.height)), 0)
             return label
 
-        def _build_tappable_card(
+        def _visual_card(
             title: str,
             subtitle: str,
             footer: str,
             height: float,
             card_color: tuple[float, float, float, float],
             border_color: tuple[float, float, float, float],
-        ) -> RelativeLayout:
-            wrap = RelativeLayout(size_hint_y=None, height=height)
-            card = RoundedPanel(orientation="vertical", bg_color=card_color, border_color=border_color)
-            card.size_hint = (1, 1)
-            card.pos_hint = {"x": 0, "y": 0}
-            card.padding = [dp(14), dp(12), dp(14), dp(12)]
-            card.spacing = dp(4)
-            card.add_widget(_centered_text_label(title, white, "20sp", dp(32), bold=True))
-            card.add_widget(_centered_text_label(subtitle, muted, "14sp", dp(24)))
-            card.add_widget(_centered_text_label(footer, accent, "13sp", dp(24), bold=True))
-            wrap.add_widget(card)
-            return wrap
+            title_size: str = "18sp",
+            subtitle_size: str = "12sp",
+            footer_size: str = "12sp",
+        ) -> RoundedPanel:
+            card = RoundedPanel(
+                orientation="vertical",
+                size_hint_y=None,
+                height=height,
+                bg_color=card_color,
+                border_color=border_color,
+            )
+            card.padding = [dp(10), dp(8), dp(10), dp(8)]
+            card.spacing = dp(2)
+            card.add_widget(_centered_text_label(title, white, title_size, dp(28), bold=True))
+            card.add_widget(_centered_text_label(subtitle, muted, subtitle_size, dp(22)))
+            card.add_widget(_centered_text_label(footer, accent, footer_size, dp(20), bold=True))
+            return card
 
-        hero = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(168), bg_color=brand_blue, border_color=sport_blue)
-        hero.padding = [dp(16), dp(14), dp(16), dp(14)]
-        hero.spacing = dp(8)
-        hero_logo_wrap = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None, height=dp(46))
-        hero_logo_wrap.add_widget(Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint=(None, None), size=(dp(46), dp(46))))
+        hero = RoundedPanel(
+            orientation="vertical",
+            size_hint_y=None,
+            height=dp(124),
+            bg_color=brand_blue,
+            border_color=sport_blue,
+        )
+        hero.padding = [dp(16), dp(10), dp(16), dp(10)]
+        hero.spacing = dp(4)
+        hero_logo_wrap = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None, height=dp(38))
+        hero_logo_wrap.add_widget(
+            Image(
+                source="assets/logo_cumbrepark.png",
+                fit_mode="contain",
+                size_hint=(None, None),
+                size=(dp(38), dp(38)),
+            )
+        )
         hero.add_widget(hero_logo_wrap)
-        hero.add_widget(_centered_text_label("CumbrePark", white, "32sp", dp(44), bold=True))
-        hero.add_widget(_centered_text_label("Explora. Registra. Comparte.", muted, "15sp", dp(24)))
+        hero.add_widget(_centered_text_label("CumbrePark", white, "30sp", dp(38), bold=True))
+        hero.add_widget(_centered_text_label("Explora. Registra. Comparte.", muted, "14sp", dp(22)))
         content.add_widget(hero)
 
-        lead = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(150), bg_color=card_dark, border_color=sport_blue)
-        lead.padding = [dp(16), dp(16), dp(16), dp(16)]
-        lead.spacing = dp(8)
-        lead.add_widget(_centered_text_label("Tu próxima ruta empieza acá", white, "24sp", dp(40), bold=True))
-        lead.add_widget(_centered_text_label("Planifica, registra y comparte tus aventuras outdoor.", muted, "15sp", dp(44)))
+        lead = RoundedPanel(
+            orientation="vertical",
+            size_hint_y=None,
+            height=dp(102),
+            bg_color=card_dark,
+            border_color=sport_blue,
+        )
+        lead.padding = [dp(16), dp(12), dp(16), dp(12)]
+        lead.spacing = dp(6)
+        lead.add_widget(_centered_text_label("Tu próxima ruta empieza acá", white, "23sp", dp(34), bold=True))
+        lead.add_widget(_centered_text_label("Planifica, registra y comparte tus aventuras outdoor.", muted, "14sp", dp(34)))
         content.add_widget(lead)
 
-        quick_actions = GridLayout(cols=3, spacing=dp(10), size_hint_y=None, height=dp(114))
-        for action in ("Mapa + clima", "Emergencia", "Registrar actividad"):
+        quick_actions = GridLayout(
+            cols=3,
+            spacing=dp(10),
+            size_hint_y=None,
+            height=dp(96),
+            row_force_default=True,
+            row_default_height=dp(96),
+        )
+        for action in ("Mapa + clima", "Emergencia", "Registrar"):
             quick_actions.add_widget(
-                _build_tappable_card(
+                _visual_card(
                     title=action,
                     subtitle="Acción rápida",
                     footer="Disponible pronto",
-                    height=dp(114),
+                    height=dp(96),
                     card_color=sport_blue,
                     border_color=sport_blue,
+                    title_size="16sp",
                 )
             )
         content.add_widget(quick_actions)
 
+        modules_grid = GridLayout(
+            cols=2,
+            spacing=dp(10),
+            size_hint_y=None,
+            height=dp(254),
+            row_force_default=True,
+            row_default_height=dp(78),
+        )
         modules = [
-            ("Explorar", "Mapas, clima y lugares cercanos"),
-            ("Seguridad", "Emergencia, ubicación y avisos"),
-            ("Actividad", "Rutas, distancia, desnivel y tiempo"),
-            ("Comunidad", "Ranking, marketplace y grupos"),
-            ("Perfil", "Preferencias, nivel y experiencia"),
+            ("Explorar", "Mapas, clima y lugares"),
+            ("Seguridad", "Emergencia y avisos"),
+            ("Actividad", "Rutas y métricas"),
+            ("Comunidad", "Ranking y grupos"),
+            ("Perfil", "Nivel y experiencia"),
         ]
-
         for title, subtitle in modules:
-            content.add_widget(
-                _build_tappable_card(
+            modules_grid.add_widget(
+                _visual_card(
                     title=title,
                     subtitle=subtitle,
-                    footer="Ver módulo",
-                    height=dp(112),
+                    footer="Módulo visual",
+                    height=dp(78),
                     card_color=card_dark,
                     border_color=(0.12, 0.20, 0.27, 1),
+                    title_size="17sp",
+                    subtitle_size="12sp",
+                    footer_size="11sp",
                 )
             )
+        modules_grid.add_widget(Widget(size_hint_y=None, height=dp(78)))
+        content.add_widget(modules_grid)
 
-        self.status_label = Label(
-            text="Inicio visual estable V.0.2.1. Las funciones avanzadas están en diseño.",
+        status_label = Label(
+            text="Maqueta visual estable · Funciones en diseño",
             color=accent,
             font_size="13sp",
             halign="center",
             valign="middle",
             size_hint_y=None,
             height=dp(28),
-            text_size=(0, 0),
         )
-        self.status_label.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
-        Clock.schedule_once(lambda *_: setattr(self.status_label, "text_size", (self.status_label.width, self.status_label.height)), 0)
-        content.add_widget(self.status_label)
+        status_label.bind(size=lambda instance, _: setattr(instance, "text_size", (instance.width, instance.height)))
+        Clock.schedule_once(lambda *_: setattr(status_label, "text_size", (status_label.width, status_label.height)), 0)
+        content.add_widget(status_label)
 
     def _sync_home_bg(self, root: BoxLayout) -> None:
         self._home_bg.pos = root.pos
         self._home_bg.size = root.size
 
     def show_feature_disabled(self, name: str) -> None:
-        if self.status_label:
-            self.status_label.text = f"{name}: Función en diseño"
-
+        # Conservado solo por compatibilidad. HomeScreen ya no lo usa.
+        return None
 
 
 class WeatherScreen(Screen):
