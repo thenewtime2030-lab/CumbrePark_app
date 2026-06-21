@@ -90,17 +90,22 @@ except Exception:  # pragma: no cover - solo se usa si falta la dependencia
     MapSource = None  # type: ignore
 
 
-# Paleta tomada del logo: azul profundo, azul petróleo, celeste/mint claro y blanco.
+# Sistema visual oscuro compartido por todas las pantallas.
 COLORS = {
-    "navy": (0.03, 0.20, 0.31, 1),       # #08334F aprox.
-    "blue": (17/255, 72/255, 113/255, 1),  # #114871 exacto
-    "teal": (0.12, 0.47, 0.58, 1),       # #1F7894 aprox.
-    "mint": (0.84, 0.97, 0.94, 1),       # #D6F7F0 aprox.
-    "soft": (0.94, 0.98, 0.98, 1),       # fondo suave
+    "background": (7/255, 16/255, 24/255, 1),
+    "surface": (16/255, 26/255, 36/255, 1),
+    "surface_alt": (20/255, 36/255, 50/255, 1),
+    "border": (35/255, 57/255, 72/255, 1),
+    "navy": (7/255, 16/255, 24/255, 1),
+    "blue": (17/255, 72/255, 113/255, 1),
+    "teal": (23/255, 106/255, 154/255, 1),
+    "mint": (20/255, 55/255, 67/255, 1),
+    "soft": (20/255, 36/255, 50/255, 1),
+    "accent": (183/255, 255/255, 74/255, 1),
     "white": (1, 1, 1, 1),
-    "text": (0.04, 0.14, 0.20, 1),
-    "muted": (0.28, 0.40, 0.46, 1),
-    "danger": (0.70, 0.18, 0.12, 1),
+    "text": (244/255, 248/255, 250/255, 1),
+    "muted": (170/255, 183/255, 194/255, 1),
+    "danger": (205/255, 62/255, 55/255, 1),
 }
 
 # Coordenada inicial solo para probar en computador cuando no hay GPS.
@@ -304,9 +309,9 @@ def detect_place_kind(tags: dict[str, Any]) -> str:
 
 
 class RoundedPanel(BoxLayout):
-    bg_color = ListProperty(COLORS["white"])
-    border_color = ListProperty((0.85, 0.92, 0.94, 1))
-    radius = NumericProperty(dp(18))
+    bg_color = ListProperty(COLORS["surface"])
+    border_color = ListProperty(COLORS["border"])
+    radius = NumericProperty(dp(8))
     border_width = NumericProperty(dp(1))
 
     def __init__(self, **kwargs: Any) -> None:
@@ -348,8 +353,8 @@ class SecondaryButton(Button):
         super().__init__(**kwargs)
         self.background_normal = ""
         self.background_down = ""
-        self.background_color = COLORS["mint"]
-        self.color = COLORS["navy"]
+        self.background_color = COLORS["surface_alt"]
+        self.color = COLORS["white"]
         self.font_size = "14sp"
         self.bold = True
         self.size_hint_y = None
@@ -372,7 +377,7 @@ class SmallButton(Button):
 class TitleLabel(Label):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.color = COLORS["navy"]
+        self.color = COLORS["text"]
         self.bold = True
         self.font_size = "24sp"
         self.halign = "left"
@@ -406,36 +411,42 @@ class MutedLabel(Label):
 class Header(BoxLayout):
     def __init__(self, title: str, back: bool = True, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.orientation = "vertical"
+        self.orientation = "horizontal"
         self.size_hint_y = None
-        self.height = dp(96)
-        self.padding = [dp(12), dp(8), dp(12), dp(10)]
-        self.spacing = dp(4)
+        self.height = dp(72)
+        self.padding = [dp(12), dp(10), dp(14), dp(10)]
+        self.spacing = dp(10)
+        with self.canvas.before:
+            self._header_color = Color(*COLORS["surface"])
+            self._header_bg = RoundedRectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._sync_header, size=self._sync_header)
 
-        top_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(42), spacing=dp(8))
         if back:
-            back_btn = SecondaryButton(text="‹ Inicio")
-            back_btn.width = dp(112)
+            back_btn = SecondaryButton(text="‹")
+            back_btn.width = dp(48)
             back_btn.size_hint_x = None
+            back_btn.height = dp(48)
             back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
-            top_row.add_widget(back_btn)
+            self.add_widget(back_btn)
         logo = Image(
-            source="assets/logo_cumbrepark.png",
+            source="assets/icon_cumbrepark.png",
             fit_mode="contain",
             size_hint=(None, None),
-            width=dp(28),
-            height=dp(28),
+            width=dp(44),
+            height=dp(44),
         )
-        logo_wrap = AnchorLayout(anchor_x="left", anchor_y="center", size_hint_x=None, width=dp(36))
+        logo_wrap = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_x=None, width=dp(48))
         logo_wrap.add_widget(logo)
-        top_row.add_widget(logo_wrap)
-        top_row.add_widget(Widget())
-        self.add_widget(top_row)
+        self.add_widget(logo_wrap)
 
-        title_label = TitleLabel(text=title, font_size="22sp", size_hint_y=None, height=dp(34))
-        title_label.halign = "center"
+        title_label = TitleLabel(text=title, font_size="20sp")
+        title_label.halign = "left"
         title_label.valign = "middle"
         self.add_widget(title_label)
+
+    def _sync_header(self, *_: Any) -> None:
+        self._header_bg.pos = self.pos
+        self._header_bg.size = self.size
 
 
 class LocationMap(BoxLayout):
@@ -555,7 +566,7 @@ class PlaceholderScreen(Screen):
         self.name = name
 
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header(title))
 
@@ -579,7 +590,7 @@ class PlaceholderScreen(Screen):
         hero.add_widget(MutedLabel(text="Próximamente tendrás esta función lista para uso real.", size_hint_y=None, height=dp(26)))
         content.add_widget(hero)
 
-        future = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["white"])
+        future = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["surface"])
         future.padding = [dp(16), dp(16), dp(16), dp(16)]
         future.spacing = dp(8)
         future.bind(minimum_height=future.setter("height"))
@@ -601,7 +612,7 @@ class EmergencyScreen(Screen):
         self.name = "emergency"
 
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header("Emergencia"))
 
@@ -618,6 +629,7 @@ class EmergencyScreen(Screen):
 
         warning = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"])
         warning.padding = [dp(16), dp(16), dp(16), dp(16)]
+        warning.border_color = COLORS["danger"]
         warning.bind(minimum_height=warning.setter("height"))
         warning.add_widget(TitleLabel(text="Números de emergencia", size_hint_y=None, height=dp(34), font_size="21sp"))
         warning.add_widget(MutedLabel(text="En una emergencia real, llama directamente al número correspondiente.", size_hint_y=None, height=dp(46)))
@@ -636,7 +648,7 @@ class EmergencyScreen(Screen):
         grid = GridLayout(cols=1, spacing=dp(8), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
         for label, number in contacts:
-            card = RoundedPanel(orientation="horizontal", size_hint_y=None, height=dp(58), bg_color=COLORS["white"])
+            card = RoundedPanel(orientation="horizontal", size_hint_y=None, height=dp(58), bg_color=COLORS["surface"])
             card.padding = [dp(14), dp(12), dp(14), dp(12)]
             card.add_widget(BodyLabel(text=label))
             call_button = SmallButton(text=number, size_hint_x=None, width=dp(84), height=dp(38))
@@ -645,10 +657,11 @@ class EmergencyScreen(Screen):
             grid.add_widget(card)
         content.add_widget(grid)
 
-        tools = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["white"])
+        tools = RoundedPanel(orientation="vertical", size_hint_y=None, bg_color=COLORS["surface"])
         tools.bind(minimum_height=tools.setter("height"))
         tools.add_widget(BodyLabel(text="Tu ubicación de emergencia", size_hint_y=None, height=dp(30)))
         self.location_label = MutedLabel(text="Obteniendo coordenadas...", size_hint_y=None, height=dp(44))
+        self.location_label.color = COLORS["accent"]
         tools.add_widget(self.location_label)
         copy_button = SecondaryButton(text="Copiar coordenadas actuales")
         copy_button.bind(on_release=lambda *_: self.copy_coordinates())
@@ -690,7 +703,7 @@ class DownloadMapScreen(Screen):
         self.selected_lon = DEFAULT_LON
 
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header("Mapa sin internet"))
 
@@ -733,13 +746,15 @@ class DownloadMapScreen(Screen):
         coordinates = GridLayout(cols=3, spacing=dp(8), size_hint_y=None, height=dp(46))
         self.lat_input = TextInput(
             text=f"{DEFAULT_LAT:.6f}", multiline=False, input_filter="float",
-            background_normal="", background_active="", background_color=COLORS["white"],
-            foreground_color=COLORS["text"], padding=[dp(8), dp(12), dp(8), 0],
+            background_normal="", background_active="", background_color=COLORS["surface_alt"],
+            foreground_color=COLORS["text"], cursor_color=COLORS["accent"],
+            hint_text_color=COLORS["muted"], padding=[dp(8), dp(12), dp(8), 0],
         )
         self.lon_input = TextInput(
             text=f"{DEFAULT_LON:.6f}", multiline=False, input_filter="float",
-            background_normal="", background_active="", background_color=COLORS["white"],
-            foreground_color=COLORS["text"], padding=[dp(8), dp(12), dp(8), 0],
+            background_normal="", background_active="", background_color=COLORS["surface_alt"],
+            foreground_color=COLORS["text"], cursor_color=COLORS["accent"],
+            hint_text_color=COLORS["muted"], padding=[dp(8), dp(12), dp(8), 0],
         )
         apply_button = SmallButton(text="Aplicar")
         apply_button.bind(on_release=lambda *_: self.apply_coordinates())
@@ -761,6 +776,7 @@ class DownloadMapScreen(Screen):
         panel.add_widget(self.zoom_slider)
 
         self.estimate_label = MutedLabel(text="", size_hint_y=None, height=dp(32))
+        self.estimate_label.color = COLORS["accent"]
         panel.add_widget(self.estimate_label)
 
         actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(52))
@@ -773,7 +789,7 @@ class DownloadMapScreen(Screen):
         panel.add_widget(actions)
         content.add_widget(panel)
 
-        info = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(142), bg_color=COLORS["white"])
+        info = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(142), bg_color=COLORS["surface"])
         info.add_widget(BodyLabel(text="Estado", size_hint_y=None, height=dp(28)))
         self.status_label = MutedLabel(
             text="Aún no hay una descarga en curso.",
@@ -1035,25 +1051,25 @@ class WeatherScreen(Screen):
         self.selected_lon = DEFAULT_LON
 
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
 
         root.add_widget(Header("Mapa + clima"))
 
-        intro = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(120), bg_color=COLORS["soft"])
-        intro.add_widget(BodyLabel(text="Toca un punto del mapa para consultar clima local.", size_hint_y=None, height=dp(30)))
-        intro.add_widget(MutedLabel(text="El panel resume temperatura, lluvia y viento. Es una base para evolucionar hacia capas tipo Windy.", size_hint_y=None, height=dp(52)))
+        intro = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(94), bg_color=COLORS["surface"])
+        intro.add_widget(BodyLabel(text="Pronóstico outdoor", size_hint_y=None, height=dp(28), font_size="17sp", bold=True))
+        intro.add_widget(MutedLabel(text="Toca un punto del mapa para revisar temperatura, lluvia y viento.", size_hint_y=None, height=dp(38)))
         root.add_widget(intro)
 
         self.map_widget = LocationMap(selectable=True, on_select=self.select_point_from_map, size_hint_y=0.44)
         root.add_widget(self.map_widget)
 
         action_row = GridLayout(cols=3, spacing=dp(8), padding=[dp(12), dp(6), dp(12), dp(6)], size_hint_y=None, height=dp(56))
-        current_btn = SmallButton(text="Mi ubicación")
+        current_btn = SmallButton(text="Mi GPS")
         current_btn.bind(on_release=lambda *_: self.use_current_location())
-        weather_btn = SmallButton(text="Actualizar clima")
+        weather_btn = SmallButton(text="Actualizar")
         weather_btn.bind(on_release=lambda *_: self.fetch_weather(self.selected_lat, self.selected_lon))
-        google_btn = SmallButton(text="Google Maps")
+        google_btn = SmallButton(text="Abrir Maps")
         google_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps(self.selected_lat, self.selected_lon))
         action_row.add_widget(current_btn)
         action_row.add_widget(weather_btn)
@@ -1114,7 +1130,7 @@ class WeatherScreen(Screen):
 
     def set_weather_message(self, message: str) -> None:
         self.weather_content.clear_widgets()
-        panel = RoundedPanel(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, height=dp(100))
+        panel = RoundedPanel(orientation="vertical", bg_color=COLORS["surface"], size_hint_y=None, height=dp(100))
         panel.add_widget(BodyLabel(text=message))
         self.weather_content.add_widget(panel)
 
@@ -1147,7 +1163,7 @@ class WeatherScreen(Screen):
         probs = hourly.get("precipitation_probability", [])[:8]
         winds = hourly.get("wind_speed_10m", [])[:8]
 
-        forecast_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None)
+        forecast_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["surface"], size_hint_y=None)
         forecast_panel.padding = [dp(14), dp(16), dp(14), dp(14)]
         forecast_panel.spacing = dp(10)
         forecast_panel.bind(minimum_height=forecast_panel.setter("height"))
@@ -1184,11 +1200,11 @@ class OriginModeButton(ToggleButton):
 
     def update_style(self, *_: Any) -> None:
         if self.state == "down":
-            self.background_color = COLORS["blue"]
+            self.background_color = COLORS["teal"]
             self.color = COLORS["white"]
         else:
-            self.background_color = COLORS["mint"]
-            self.color = COLORS["navy"]
+            self.background_color = COLORS["surface_alt"]
+            self.color = COLORS["muted"]
 
 
 class NearbyScreen(Screen):
@@ -1201,7 +1217,7 @@ class NearbyScreen(Screen):
         self.selected_origin_source = "gps"
 
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header("Lugares cercanos"))
 
@@ -1219,9 +1235,9 @@ class NearbyScreen(Screen):
         controls.add_widget(self.origin_status)
 
         mode_row = GridLayout(cols=3, spacing=dp(8), size_hint_y=None, height=dp(44))
-        self.mode_gps = OriginModeButton(text="Usar mi GPS", group="origin_mode", state="down")
-        self.mode_manual = OriginModeButton(text="Elegir punto manualmente", group="origin_mode")
-        self.mode_address = OriginModeButton(text="Buscar dirección", group="origin_mode")
+        self.mode_gps = OriginModeButton(text="GPS", group="origin_mode", state="down")
+        self.mode_manual = OriginModeButton(text="Mapa", group="origin_mode")
+        self.mode_address = OriginModeButton(text="Dirección", group="origin_mode")
         self.mode_gps.bind(on_release=lambda *_: self.set_origin_mode("gps"))
         self.mode_manual.bind(on_release=lambda *_: self.set_origin_mode("manual"))
         self.mode_address.bind(on_release=lambda *_: self.set_origin_mode("address"))
@@ -1237,7 +1253,12 @@ class NearbyScreen(Screen):
         self.origin_map.bind(on_touch_up=self.on_origin_map_touch)
 
         address_row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(46))
-        self.address_input = TextInput(hint_text="Escribe una dirección", multiline=False, size_hint_y=None, height=dp(46), background_normal="", background_active="", background_color=COLORS["white"], foreground_color=COLORS["text"], padding=[dp(10), dp(12), dp(10), 0])
+        self.address_input = TextInput(
+            hint_text="Escribe una dirección", multiline=False, size_hint_y=None, height=dp(46),
+            background_normal="", background_active="", background_color=COLORS["surface_alt"],
+            foreground_color=COLORS["text"], cursor_color=COLORS["accent"],
+            hint_text_color=COLORS["muted"], padding=[dp(10), dp(12), dp(10), 0],
+        )
         address_btn = SmallButton(text="Usar dirección")
         address_btn.bind(on_release=lambda *_: self.use_address())
         address_row.add_widget(self.address_input)
@@ -1376,7 +1397,7 @@ class NearbyScreen(Screen):
 
     def render_message(self, message: str) -> None:
         self.results_content.clear_widgets()
-        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(88), bg_color=COLORS["white"])
+        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(88), bg_color=COLORS["surface"])
         panel.add_widget(BodyLabel(text=message))
         self.results_content.add_widget(panel)
 
@@ -1464,7 +1485,7 @@ class ActivityScreen(Screen):
         super().__init__(**kwargs)
         self.name = "register_activity"
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header("Registrar actividad"))
 
@@ -1479,6 +1500,7 @@ class ActivityScreen(Screen):
             spacing=dp(6),
         )
         self.state_label = BodyLabel(text="Actividad lista", size_hint_y=0.16, halign="center")
+        self.state_label.color = COLORS["accent"]
         self.metrics_label = TitleLabel(
             text="00:00:00\n0.00 km",
             size_hint_y=0.38,
@@ -1550,7 +1572,7 @@ class ActivityHistoryScreen(Screen):
         super().__init__(**kwargs)
         self.name = "sports_history"
         root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
+        root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header("Mis actividades"))
         scroll = ScrollView(do_scroll_x=False)
@@ -1580,7 +1602,7 @@ class ActivityHistoryScreen(Screen):
             hours, remainder = divmod(seconds, 3600)
             minutes, _seconds = divmod(remainder, 60)
             date = str(record.get("started_at", ""))[:16].replace("T", " ")
-            panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(118), bg_color=COLORS["white"])
+            panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(118), bg_color=COLORS["surface"])
             panel.add_widget(TitleLabel(text=f"{record.get('sport', 'Actividad')} · {date}", size_hint_y=None, height=dp(34), font_size="18sp"))
             panel.add_widget(BodyLabel(
                 text=f"{float(record.get('distance_km', 0)):.2f} km · {hours:02d}:{minutes:02d} h · +{float(record.get('ascent_m', 0)):.0f} m",
@@ -1593,11 +1615,11 @@ class ActivityHistoryScreen(Screen):
 
 class PlaceCard(RoundedPanel):
     def __init__(self, place: Place, **kwargs: Any) -> None:
-        super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, height=dp(176), **kwargs)
+        super().__init__(orientation="vertical", bg_color=COLORS["surface"], size_hint_y=None, height=dp(176), **kwargs)
         self.place = place
         self.spacing = dp(4)
         self.padding = [dp(12), dp(10), dp(12), dp(10)]
-        self.border_color = (0.78, 0.89, 0.93, 1)
+        self.border_color = COLORS["border"]
         title = TitleLabel(text=place.name, size_hint_y=None, height=dp(44), font_size="18sp")
         title.max_lines = 2
         title.text_size = (Window.width - dp(72), dp(44))
@@ -1644,7 +1666,7 @@ class CumbreParkApp(App):
         self.last_activity_checkpoint = 0.0
 
     def build(self) -> ScreenManager:
-        Window.clearcolor = COLORS["white"]
+        Window.clearcolor = COLORS["background"]
         self.data_dir = Path(self.user_data_dir)
         self.offline_cache_dir = self.data_dir / "map_cache"
         self.data_dir.mkdir(parents=True, exist_ok=True)
