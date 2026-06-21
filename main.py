@@ -1,852 +1,755 @@
-# CumbrePark - prototipo inicial en Python/Kivy para Android
-# -------------------------------------------------------------
-# Objetivo de esta versión:
-# - Pantalla de inicio fija con logo, título, botones y recuadro de mapa.
-# - Uso de ubicación GPS si la persona acepta compartirla.
-# - Pantalla de mapa + clima para tocar un punto del mapa y ver pronóstico.
-# - Pantalla de parques/senderos/reservas cercanas ordenadas por distancia.
-#
-# IMPORTANTE:
-# - El mapa embebido usa OpenStreetMap mediante kivy_garden.mapview, porque es
-#   lo más directo para una app Android hecha en Python/Kivy.
-# - Se incluye botón para abrir la misma coordenada en Google Maps.
-# - Para integrar Google Maps nativo dentro de la app más adelante, lo ideal es
-#   agregar Google Maps SDK con una parte nativa Android/Kotlin o una integración
-#   específica con API key.
+# -*- coding: utf-8 -*-
+"""
+PerkVia99 - main.py
+Base Android/Kivy offline-first para combustibles, promociones y códigos.
+
+No contiene claves API, no inventa precios reales y no publica descuentos no verificados.
+"""
 
 from __future__ import annotations
 
+import json
 import math
-import threading
-import webbrowser
-from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.window import Window
-from kivy.graphics import Color, Line, RoundedRectangle
+from kivy.lang import Builder
 from kivy.metrics import dp
-from kivy.properties import DictProperty, ListProperty, NumericProperty, ObjectProperty, StringProperty
-from kivy.uix.anchorlayout import AnchorLayout
+from kivy.properties import BooleanProperty, DictProperty, ListProperty, StringProperty
+from kivy.utils import platform
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.gridlayout import GridLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
-from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
+from kivy.uix.screenmanager import Screen
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.slider import Slider
-from kivy.uix.widget import Widget
+from kivy.uix.textinput import TextInput
 
 try:
     from kivy_garden.mapview import MapMarker, MapView
+except Exception:  # pragma: no cover - fallback for desktop or missing garden package
+    MapView = None
+    MapMarker = None
 
-    MAPVIEW_AVAILABLE = True
-except Exception:  # pragma: no cover - solo se usa si falta la dependencia
-    MAPVIEW_AVAILABLE = False
-
-    class MapView(BoxLayout):  # type: ignore
-        lat = NumericProperty(0)
-        lon = NumericProperty(0)
-        zoom = NumericProperty(1)
-
-        def __init__(self, **kwargs: Any) -> None:
-            super().__init__(**kwargs)
-            self.orientation = "vertical"
-            self.add_widget(
-                Label(
-                    text="Instala kivy_garden.mapview para ver el mapa.",
-                    color=(0.05, 0.18, 0.28, 1),
-                    halign="center",
-                )
-            )
-
-        def add_marker(self, marker: Any) -> None:
-            return None
-
-        def remove_marker(self, marker: Any) -> None:
-            return None
-
-        def center_on(self, lat: float, lon: float) -> None:
-            self.lat = lat
-            self.lon = lon
-
-    class MapMarker(Widget):  # type: ignore
-        def __init__(self, lat: float = 0, lon: float = 0, **kwargs: Any) -> None:
-            super().__init__(**kwargs)
-            self.lat = lat
-            self.lon = lon
+try:
+    from plyer import gps
+except Exception:  # pragma: no cover - fallback for desktop
+    gps = None
 
 
-# Paleta tomada del logo: azul profundo, azul petróleo, celeste/mint claro y blanco.
-COLORS = {
-    "navy": (0.03, 0.20, 0.31, 1),       # #08334F aprox.
-    "blue": (0.04, 0.34, 0.48, 1),       # #0A567A aprox.
-    "teal": (0.12, 0.47, 0.58, 1),       # #1F7894 aprox.
-    "mint": (0.84, 0.97, 0.94, 1),       # #D6F7F0 aprox.
-    "soft": (0.94, 0.98, 0.98, 1),       # fondo suave
-    "white": (1, 1, 1, 1),
-    "text": (0.04, 0.14, 0.20, 1),
-    "muted": (0.28, 0.40, 0.46, 1),
-    "danger": (0.70, 0.18, 0.12, 1),
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_DIR = BASE_DIR / "config"
+DATA_DIR = BASE_DIR / "data"
+ASSETS_DIR = BASE_DIR / "assets"
+LOGO_PATH = ASSETS_DIR / "logo.png"
+ICON_PATH = ASSETS_DIR / "icon.png"
+
+
+DEFAULT_APP_CONFIG: Dict[str, Any] = {
+    "app_name": "PerkVia99",
+    "version": "0.1.0",
+    "country": "CL",
+    "currency": "CLP",
+    "language": "es-CL",
+    "default_map_center": {"latitude": -33.4489, "longitude": -70.6693, "zoom": 12},
+    "data_freshness": {"fuel_prices_hours": 24, "promotions_hours": 24, "codes_hours": 12},
+    "features": {"fuel_map": True, "promotions": True, "delivery_codes": True, "ride_codes": True},
+    "privacy": {"background_location": False, "analytics": False, "personalized_ads_default": False},
 }
 
-# Coordenada inicial solo para probar en computador cuando no hay GPS.
-# En Android, al aceptar permisos, se reemplaza por la ubicación real.
-DEFAULT_LAT = -33.4489
-DEFAULT_LON = -70.6693
-DEFAULT_ZOOM = 11
+DEFAULT_THEME: Dict[str, Any] = {
+    "colors": {
+        "primary": "#6D20D5",
+        "primary_dark": "#4E13A8",
+        "secondary": "#FF7A14",
+        "background": "#F8F6FC",
+        "surface": "#FFFFFF",
+        "text": "#20242C",
+        "text_muted": "#68707D",
+        "border": "#E4DDF0",
+        "success": "#17B890",
+        "warning": "#FF7A14",
+        "danger": "#D92D20",
+    }
+}
 
 
 @dataclass
-class Place:
+class FuelStation:
+    id: str
     name: str
-    kind: str
-    lat: float
-    lon: float
-    distance_km: float
-    source: str = "OpenStreetMap"
+    brand: str
+    address: str
+    latitude: float
+    longitude: float
+    distance_km: Optional[float] = None
+    prices: Dict[str, int] = field(default_factory=dict)
+    updated_at: Optional[str] = None
+    source_name: str = "Sin proveedor configurado"
+    source_url: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> Optional["FuelStation"]:
+        try:
+            station_id = str(raw.get("id") or "").strip()
+            name = str(raw.get("name") or "").strip()
+            lat = float(raw.get("latitude"))
+            lon = float(raw.get("longitude"))
+            if not station_id or not name:
+                return None
+            prices = raw.get("prices") if isinstance(raw.get("prices"), dict) else {}
+            clean_prices: Dict[str, int] = {}
+            for key, value in prices.items():
+                try:
+                    numeric = int(value)
+                    if numeric > 0:
+                        clean_prices[str(key)] = numeric
+                except Exception:
+                    continue
+            distance = raw.get("distance_km")
+            return cls(
+                id=station_id,
+                name=name,
+                brand=str(raw.get("brand") or "").strip(),
+                address=str(raw.get("address") or "").strip(),
+                latitude=lat,
+                longitude=lon,
+                distance_km=float(distance) if distance is not None else None,
+                prices=clean_prices,
+                updated_at=raw.get("updated_at"),
+                source_name=str(raw.get("source_name") or "Sin proveedor configurado"),
+                source_url=raw.get("source_url"),
+            )
+        except Exception:
+            return None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "brand": self.brand,
+            "address": self.address,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "distance_km": self.distance_km,
+            "prices": self.prices,
+            "updated_at": self.updated_at,
+            "source_name": self.source_name,
+            "source_url": self.source_url,
+        }
 
 
-def rgba_to_hex(color: tuple[float, float, float, float]) -> str:
-    r, g, b, _ = color
-    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+@dataclass
+class Promotion:
+    id: str
+    category: str
+    brand: str
+    title: str
+    description: str
+    status: str = "unknown"
+    benefit_type: Optional[str] = None
+    benefit_value: Optional[float] = None
+    code: Optional[str] = None
+    expires_at: Optional[str] = None
+    verified_at: Optional[str] = None
+    source_url: Optional[str] = None
+    terms: List[str] = field(default_factory=list)
+    verification_score: int = 0
+    verification_label: str = "Sin verificar"
+    success_reports: int = 0
+    failure_reports: int = 0
+
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> Optional["Promotion"]:
+        try:
+            promo_id = str(raw.get("id") or "").strip()
+            title = str(raw.get("title") or "").strip()
+            category = str(raw.get("category") or "").strip()
+            if not promo_id or not title or not category:
+                return None
+            terms = raw.get("terms") if isinstance(raw.get("terms"), list) else []
+            return cls(
+                id=promo_id,
+                category=category,
+                brand=str(raw.get("brand") or "").strip(),
+                title=title,
+                description=str(raw.get("description") or "").strip(),
+                status=str(raw.get("status") or "unknown"),
+                benefit_type=raw.get("benefit_type"),
+                benefit_value=raw.get("benefit_value"),
+                code=raw.get("code"),
+                expires_at=raw.get("expires_at"),
+                verified_at=raw.get("verified_at"),
+                source_url=raw.get("source_url"),
+                terms=[str(item) for item in terms],
+                verification_score=max(0, min(100, int(raw.get("verification_score") or 0))),
+                verification_label=str(raw.get("verification_label") or "Sin verificar"),
+                success_reports=max(0, int(raw.get("success_reports") or 0)),
+                failure_reports=max(0, int(raw.get("failure_reports") or 0)),
+            )
+        except Exception:
+            return None
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def read_json(path: Path, fallback: Any) -> Any:
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return fallback
+
+
+def write_json(path: Path, payload: Any) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def cache_is_fresh(cache_payload: Dict[str, Any], hours: int) -> bool:
+    created_at = parse_iso(cache_payload.get("cached_at"))
+    if not created_at:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - created_at <= timedelta(hours=hours)
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     radius = 6371.0
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    d_phi = math.radians(lat2 - lat1)
-    d_lam = math.radians(lon2 - lon1)
-    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
+    )
     return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def weather_description(code: int) -> str:
-    # Códigos WMO usados por Open-Meteo.
-    descriptions = {
-        0: "Cielo despejado",
-        1: "Mayormente despejado",
-        2: "Parcialmente nublado",
-        3: "Nublado",
-        45: "Niebla",
-        48: "Niebla con escarcha",
-        51: "Llovizna débil",
-        53: "Llovizna moderada",
-        55: "Llovizna intensa",
-        61: "Lluvia débil",
-        63: "Lluvia moderada",
-        65: "Lluvia intensa",
-        71: "Nieve débil",
-        73: "Nieve moderada",
-        75: "Nieve intensa",
-        80: "Chubascos débiles",
-        81: "Chubascos moderados",
-        82: "Chubascos intensos",
-        95: "Tormenta",
-        96: "Tormenta con granizo débil",
-        99: "Tormenta con granizo intenso",
-    }
-    return descriptions.get(code, "Condición no clasificada")
-
-
-def detect_place_kind(tags: dict[str, Any]) -> str:
-    if tags.get("route") == "hiking":
-        return "Sendero / ruta de trekking"
-    if tags.get("boundary") == "protected_area":
-        return "Área protegida"
-    if tags.get("leisure") == "nature_reserve":
-        return "Reserva natural"
-    if tags.get("leisure") == "park":
-        return "Parque"
-    if tags.get("tourism") == "viewpoint":
-        return "Mirador"
-    if tags.get("tourism") == "attraction":
-        return "Atractivo natural/turístico"
-    if tags.get("natural") == "peak":
-        return "Cumbre / cerro"
-    if tags.get("natural") == "wood":
-        return "Bosque"
-    return "Lugar outdoor"
-
-
-class RoundedPanel(BoxLayout):
-    bg_color = ListProperty(COLORS["white"])
-    border_color = ListProperty((0.85, 0.92, 0.94, 1))
-    radius = NumericProperty(dp(18))
-    border_width = NumericProperty(dp(1))
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.padding = dp(14)
-        self.spacing = dp(8)
-        with self.canvas.before:
-            self._bg_color_instruction = Color(*self.bg_color)
-            self._bg = RoundedRectangle(pos=self.pos, size=self.size, radius=[self.radius])
-            self._border_color_instruction = Color(*self.border_color)
-            self._border = Line(rounded_rectangle=(self.x, self.y, self.width, self.height, self.radius), width=self.border_width)
-        self.bind(pos=self._update_canvas, size=self._update_canvas, bg_color=self._update_canvas, border_color=self._update_canvas)
-
-    def _update_canvas(self, *_: Any) -> None:
-        self._bg_color_instruction.rgba = self.bg_color
-        self._bg.pos = self.pos
-        self._bg.size = self.size
-        self._bg.radius = [self.radius]
-        self._border_color_instruction.rgba = self.border_color
-        self._border.rounded_rectangle = (self.x, self.y, self.width, self.height, self.radius)
-        self._border.width = self.border_width
-
-
-class PrimaryButton(Button):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.background_normal = ""
-        self.background_down = ""
-        self.background_color = COLORS["blue"]
-        self.color = COLORS["white"]
-        self.font_size = "16sp"
-        self.bold = True
-        self.size_hint_y = None
-        self.height = dp(52)
-
-
-class SecondaryButton(Button):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.background_normal = ""
-        self.background_down = ""
-        self.background_color = COLORS["mint"]
-        self.color = COLORS["navy"]
-        self.font_size = "14sp"
-        self.bold = True
-        self.size_hint_y = None
-        self.height = dp(44)
-
-
-class SmallButton(Button):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.background_normal = ""
-        self.background_down = ""
-        self.background_color = COLORS["teal"]
-        self.color = COLORS["white"]
-        self.font_size = "13sp"
-        self.bold = True
-        self.size_hint_y = None
-        self.height = dp(38)
-
-
-class TitleLabel(Label):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.color = COLORS["navy"]
-        self.bold = True
-        self.font_size = "24sp"
-        self.halign = "left"
-        self.valign = "middle"
-        self.bind(size=self.setter("text_size"))
-
-
-class BodyLabel(Label):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.color = COLORS["text"]
-        self.font_size = "14sp"
-        self.halign = "left"
-        self.valign = "middle"
-        self.bind(size=self.setter("text_size"))
-
-
-class MutedLabel(Label):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.color = COLORS["muted"]
-        self.font_size = "13sp"
-        self.halign = "left"
-        self.valign = "middle"
-        self.bind(size=self.setter("text_size"))
-
-
-class Header(BoxLayout):
-    def __init__(self, title: str, back: bool = True, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.orientation = "horizontal"
-        self.size_hint_y = None
-        self.height = dp(62)
-        self.padding = [dp(12), dp(8), dp(12), dp(8)]
-        self.spacing = dp(10)
-        if back:
-            back_btn = SecondaryButton(text="‹ Inicio")
-            back_btn.width = dp(96)
-            back_btn.size_hint_x = None
-            back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
-            self.add_widget(back_btn)
-        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_x=None, width=dp(52))
-        self.add_widget(logo)
-        self.add_widget(TitleLabel(text=title))
-
-
-class LocationMap(BoxLayout):
-    """Mapa reutilizable con un marcador principal."""
-
-    marker = ObjectProperty(None, allownone=True)
-
-    def __init__(self, selectable: bool = False, on_select: Optional[Callable[[float, float], None]] = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.orientation = "vertical"
-        self.selectable = selectable
-        self.on_select = on_select
-        self.map = MapView(zoom=DEFAULT_ZOOM, lat=DEFAULT_LAT, lon=DEFAULT_LON)
-        self.add_widget(self.map)
-        if selectable and MAPVIEW_AVAILABLE:
-            self.map.bind(on_touch_up=self._handle_map_touch)
-        self.set_marker(DEFAULT_LAT, DEFAULT_LON, center=True)
-
-    def set_marker(self, lat: float, lon: float, center: bool = True) -> None:
-        try:
-            if self.marker:
-                self.map.remove_marker(self.marker)
-        except Exception:
-            pass
-        self.marker = MapMarker(lat=lat, lon=lon)
-        try:
-            self.map.add_marker(self.marker)
-        except Exception:
-            pass
-        if center:
-            try:
-                self.map.center_on(lat, lon)
-            except Exception:
-                self.map.lat = lat
-                self.map.lon = lon
-
-    def add_extra_marker(self, lat: float, lon: float) -> None:
-        try:
-            self.map.add_marker(MapMarker(lat=lat, lon=lon))
-        except Exception:
-            pass
-
-    def _handle_map_touch(self, map_widget: Widget, touch: Any) -> bool:
-        if not self.selectable or not self.collide_point(*touch.pos):
-            return False
-        if getattr(touch, "is_mouse_scrolling", False):
-            return False
-        if getattr(touch, "grab_current", None):
-            return False
-
-        # V.0.1.1:
-        # Si la persona arrastra el mapa, no seleccionamos clima.
-        # Solo seleccionamos clima cuando fue un toque corto.
-        try:
-            opos = getattr(touch, "opos", touch.pos)
-            dx = float(touch.x - opos[0])
-            dy = float(touch.y - opos[1])
-            distance = (dx * dx + dy * dy) ** 0.5
-            if distance > dp(12):
-                return False
-        except Exception:
-            pass
-
-        try:
-            try:
-                lat, lon = map_widget.get_latlon_at(touch.x, touch.y, map_widget.zoom)
-            except TypeError:
-                lat, lon = map_widget.get_latlon_at(touch.x, touch.y)
-            self.set_marker(lat, lon, center=False)
-            if self.on_select:
-                self.on_select(lat, lon)
-        except Exception:
-            return False
-        return False
+def hex_to_rgba(value: str, alpha: float = 1.0) -> Tuple[float, float, float, float]:
+    clean = str(value or "#000000").strip().lstrip("#")
+    if len(clean) != 6:
+        clean = "000000"
+    return tuple(int(clean[i : i + 2], 16) / 255 for i in (0, 2, 4)) + (alpha,)
 
 
 class HomeScreen(Screen):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.name = "home"
-        self.has_centered_on_gps = False
-
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
-        root.canvas.before.add(Color(*COLORS["white"]))
-        self.add_widget(root)
-
-        logo = Image(source="assets/logo_cumbrepark.png", fit_mode="contain", size_hint_y=0.28)
-        root.add_widget(logo)
-
-        title = Label(
-            text="CumbrePark",
-            color=COLORS["navy"],
-            font_size="34sp",
-            bold=True,
-            size_hint_y=None,
-            height=dp(42),
-        )
-        root.add_widget(title)
-
-        subtitle = Label(
-            text="Parques, senderos, clima y ubicación para explorar con más seguridad.",
-            color=COLORS["muted"],
-            font_size="14sp",
-            halign="center",
-            valign="middle",
-            size_hint_y=None,
-            height=dp(42),
-        )
-        subtitle.bind(size=subtitle.setter("text_size"))
-        root.add_widget(subtitle)
-
-        grid = GridLayout(cols=2, spacing=dp(10), size_hint_y=None, height=dp(114))
-        btn_map = PrimaryButton(text="Mapa + clima")
-        btn_near = PrimaryButton(text="Cercanos")
-        btn_route = SecondaryButton(text="Mis rutas\n(próximo)")
-        btn_safety = SecondaryButton(text="Seguridad\n(próximo)")
-        btn_map.bind(on_release=lambda *_: App.get_running_app().go_to("weather"))
-        btn_near.bind(on_release=lambda *_: App.get_running_app().go_to("nearby"))
-        grid.add_widget(btn_map)
-        grid.add_widget(btn_near)
-        grid.add_widget(btn_route)
-        grid.add_widget(btn_safety)
-        root.add_widget(grid)
-
-        panel = RoundedPanel(orientation="vertical", size_hint_y=0.42, bg_color=COLORS["soft"])
-        panel.add_widget(BodyLabel(text="Ubicación en vivo", size_hint_y=None, height=dp(24)))
-        self.status_label = MutedLabel(text="Puedes activar GPS para centrar el mapa en tu ubicación.", size_hint_y=None, height=dp(38))
-        panel.add_widget(self.status_label)
-
-        self.map_preview = LocationMap(size_hint_y=1)
-        panel.add_widget(self.map_preview)
-
-        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(44))
-        gps_btn = SmallButton(text="Usar mi ubicación")
-        maps_btn = SmallButton(text="Abrir Google Maps")
-        gps_btn.bind(on_release=lambda *_: self.request_home_gps())
-        maps_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps())
-        actions.add_widget(gps_btn)
-        actions.add_widget(maps_btn)
-        panel.add_widget(actions)
-        root.add_widget(panel)
-
-    def request_home_gps(self) -> None:
-        # V.0.1.1:
-        # Al pedir ubicación desde el inicio, centramos el mapa una vez.
-        # Luego dejamos que la persona pueda mover el mapa sin que vuelva solo.
-        self.has_centered_on_gps = False
-        App.get_running_app().request_gps()
-
-    def on_location_update(self, lat: float, lon: float) -> None:
-        should_center = not self.has_centered_on_gps
-        self.map_preview.set_marker(lat, lon, center=should_center)
-        self.has_centered_on_gps = True
-        self.status_label.text = f"GPS activo: {lat:.5f}, {lon:.5f}"
-
-    def set_status(self, message: str) -> None:
-        self.status_label.text = message
+    pass
 
 
-class WeatherScreen(Screen):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.name = "weather"
-        self.selected_lat = DEFAULT_LAT
-        self.selected_lon = DEFAULT_LON
+class FuelMapScreen(Screen):
+    gps_requested = BooleanProperty(False)
+    status_text = StringProperty("Esperando ubicación y precios actualizados")
 
-        root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
-        self.add_widget(root)
-
-        root.add_widget(Header("Mapa + clima"))
-
-        intro = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(92), bg_color=COLORS["soft"])
-        intro.add_widget(BodyLabel(text="Toca un punto del mapa para consultar clima local.", size_hint_y=None, height=dp(26)))
-        intro.add_widget(MutedLabel(text="El panel resume temperatura, lluvia y viento. Es una base para evolucionar hacia capas tipo Windy.", size_hint_y=None, height=dp(36)))
-        root.add_widget(intro)
-
-        self.map_widget = LocationMap(selectable=True, on_select=self.select_point_from_map, size_hint_y=0.48)
-        root.add_widget(self.map_widget)
-
-        action_row = GridLayout(cols=3, spacing=dp(8), padding=[dp(12), dp(6), dp(12), dp(6)], size_hint_y=None, height=dp(56))
-        current_btn = SmallButton(text="Mi ubicación")
-        current_btn.bind(on_release=lambda *_: self.use_current_location())
-        weather_btn = SmallButton(text="Actualizar clima")
-        weather_btn.bind(on_release=lambda *_: self.fetch_weather(self.selected_lat, self.selected_lon))
-        google_btn = SmallButton(text="Google Maps")
-        google_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps(self.selected_lat, self.selected_lon))
-        action_row.add_widget(current_btn)
-        action_row.add_widget(weather_btn)
-        action_row.add_widget(google_btn)
-        root.add_widget(action_row)
-
-        self.weather_scroll = ScrollView(size_hint_y=0.42)
-        self.weather_content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12), size_hint_y=None)
-        self.weather_content.bind(minimum_height=self.weather_content.setter("height"))
-        self.weather_scroll.add_widget(self.weather_content)
-        root.add_widget(self.weather_scroll)
-
-        Clock.schedule_once(lambda *_: self.fetch_weather(self.selected_lat, self.selected_lon), 0.4)
-
-    def on_location_update(self, lat: float, lon: float) -> None:
-        # No cambia el punto elegido si la persona ya tocó otro punto, pero sí deja disponible "Mi ubicación".
-        pass
-
-    def use_current_location(self) -> None:
+    def on_pre_enter(self, *args: Any) -> None:
         app = App.get_running_app()
-        self.select_point(app.current_lat, app.current_lon, center=True)
-        app.request_gps()
+        app.ensure_dirs()
+        self._build_map_once()
+        self._set_status("Solicitando ubicación solo para buscar bencineras cercanas…")
+        if not self.gps_requested:
+            self.gps_requested = True
+            app.request_location_once()
+        else:
+            app.refresh_fuel_screen()
 
-    def select_point_from_map(self, lat: float, lon: float) -> None:
-        # V.0.1.1:
-        # Cuando se toca el mapa para consultar clima, no lo recentramos.
-        # Así la persona puede explorar sin que el mapa salte.
-        self.select_point(lat, lon, center=False)
-
-    def select_point(self, lat: float, lon: float, center: bool = True) -> None:
-        self.selected_lat = float(lat)
-        self.selected_lon = float(lon)
-        self.map_widget.set_marker(self.selected_lat, self.selected_lon, center=center)
-        self.fetch_weather(self.selected_lat, self.selected_lon)
-
-    def fetch_weather(self, lat: float, lon: float) -> None:
-        self.set_weather_message("Cargando clima...")
-
-        def worker() -> None:
-            try:
-                url = "https://api.open-meteo.com/v1/forecast"
-                params = {
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,weather_code",
-                    "hourly": "temperature_2m,precipitation_probability,wind_speed_10m",
-                    "forecast_days": 1,
-                    "timezone": "auto",
-                }
-                response = requests.get(url, params=params, timeout=12)
-                response.raise_for_status()
-                data = response.json()
-                Clock.schedule_once(lambda *_: self.render_weather(data, lat, lon), 0)
-            except Exception as exc:
-                Clock.schedule_once(lambda *_: self.set_weather_message(f"No se pudo obtener el clima: {exc}"), 0)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def set_weather_message(self, message: str) -> None:
-        self.weather_content.clear_widgets()
-        panel = RoundedPanel(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, height=dp(100))
-        panel.add_widget(BodyLabel(text=message))
-        self.weather_content.add_widget(panel)
-
-    def render_weather(self, data: dict[str, Any], lat: float, lon: float) -> None:
-        self.weather_content.clear_widgets()
-        current = data.get("current", {})
-        units = data.get("current_units", {})
-        temp = current.get("temperature_2m", "-")
-        hum = current.get("relative_humidity_2m", "-")
-        rain = current.get("precipitation", "-")
-        wind = current.get("wind_speed_10m", "-")
-        wdir = current.get("wind_direction_10m", "-")
-        code = int(current.get("weather_code", -1)) if str(current.get("weather_code", "")).lstrip("-").isdigit() else -1
-
-        summary = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None, height=dp(176))
-        summary.add_widget(TitleLabel(text="Clima del punto seleccionado", size_hint_y=None, height=dp(34)))
-        summary.add_widget(BodyLabel(text=f"Coordenadas: {lat:.5f}, {lon:.5f}", size_hint_y=None, height=dp(24)))
-        summary.add_widget(BodyLabel(text=f"Estado: {weather_description(code)}", size_hint_y=None, height=dp(24)))
-        summary.add_widget(BodyLabel(text=f"Temperatura: {temp} {units.get('temperature_2m', '°C')}  |  Humedad: {hum}%", size_hint_y=None, height=dp(24)))
-        summary.add_widget(BodyLabel(text=f"Lluvia actual: {rain} {units.get('precipitation', 'mm')}  |  Viento: {wind} {units.get('wind_speed_10m', 'km/h')} dir. {wdir}°", size_hint_y=None, height=dp(34)))
-        self.weather_content.add_widget(summary)
-
-        hourly = data.get("hourly", {})
-        times = hourly.get("time", [])[:8]
-        temps = hourly.get("temperature_2m", [])[:8]
-        probs = hourly.get("precipitation_probability", [])[:8]
-        winds = hourly.get("wind_speed_10m", [])[:8]
-
-        forecast_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None)
-        forecast_panel.add_widget(TitleLabel(text="Próximas horas", size_hint_y=None, height=dp(34)))
-        for idx, hour in enumerate(times):
-            line = f"{hour[-5:]}  ·  {temps[idx] if idx < len(temps) else '-'}°C  ·  lluvia {probs[idx] if idx < len(probs) else '-'}%  ·  viento {winds[idx] if idx < len(winds) else '-'} km/h"
-            forecast_panel.add_widget(MutedLabel(text=line, size_hint_y=None, height=dp(28)))
-        forecast_panel.height = dp(48 + 28 * max(1, len(times)))
-        self.weather_content.add_widget(forecast_panel)
-
-
-class NearbyScreen(Screen):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.name = "nearby"
-        self.radius_km = 10
-
-        root = BoxLayout(orientation="vertical")
-        root.canvas.before.add(Color(*COLORS["white"]))
-        self.add_widget(root)
-        root.add_widget(Header("Cercanos"))
-
-        controls = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(170), bg_color=COLORS["soft"])
-        controls.add_widget(BodyLabel(text="Busca parques, trekkings, senderos y reservas cercanas a tu GPS.", size_hint_y=None, height=dp(30)))
-        self.radius_label = TitleLabel(text=f"Rango: {self.radius_km} km", size_hint_y=None, height=dp(34))
-        controls.add_widget(self.radius_label)
-        self.slider = Slider(min=1, max=100, value=self.radius_km, step=1, size_hint_y=None, height=dp(44))
-        self.slider.bind(value=self.on_radius_change)
-        controls.add_widget(self.slider)
-        row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(46))
-        gps_btn = SmallButton(text="Actualizar GPS")
-        gps_btn.bind(on_release=lambda *_: App.get_running_app().request_gps())
-        search_btn = SmallButton(text="Buscar cercanos")
-        search_btn.bind(on_release=lambda *_: self.search_nearby())
-        row.add_widget(gps_btn)
-        row.add_widget(search_btn)
-        controls.add_widget(row)
-        root.add_widget(controls)
-
-        self.results_scroll = ScrollView()
-        self.results_content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12), size_hint_y=None)
-        self.results_content.bind(minimum_height=self.results_content.setter("height"))
-        self.results_scroll.add_widget(self.results_content)
-        root.add_widget(self.results_scroll)
-
-        Clock.schedule_once(lambda *_: self.render_message("Ajusta el rango y presiona “Buscar cercanos”."), 0.2)
-
-    def on_pre_enter(self, *_: Any) -> None:
+    def _build_map_once(self) -> None:
         app = App.get_running_app()
-        if not app.has_requested_gps:
-            app.request_gps()
-
-    def on_location_update(self, lat: float, lon: float) -> None:
-        # No se busca automáticamente para no gastar datos; se actualiza con el botón.
-        pass
-
-    def on_radius_change(self, _: Slider, value: float) -> None:
-        self.radius_km = int(value)
-        self.radius_label.text = f"Rango: {self.radius_km} km"
-
-    def render_message(self, message: str) -> None:
-        self.results_content.clear_widgets()
-        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(112), bg_color=COLORS["white"])
-        panel.add_widget(BodyLabel(text=message))
-        self.results_content.add_widget(panel)
-
-    def search_nearby(self) -> None:
-        app = App.get_running_app()
-        lat = app.current_lat
-        lon = app.current_lon
-        radius_m = int(self.radius_km * 1000)
-        self.render_message(f"Buscando lugares en un radio de {self.radius_km} km...")
-
-        def worker() -> None:
-            try:
-                query = f"""
-                [out:json][timeout:25];
-                (
-                  node(around:{radius_m},{lat},{lon})["leisure"~"park|nature_reserve"];
-                  way(around:{radius_m},{lat},{lon})["leisure"~"park|nature_reserve"];
-                  relation(around:{radius_m},{lat},{lon})["leisure"~"park|nature_reserve"];
-
-                  node(around:{radius_m},{lat},{lon})["boundary"="protected_area"];
-                  way(around:{radius_m},{lat},{lon})["boundary"="protected_area"];
-                  relation(around:{radius_m},{lat},{lon})["boundary"="protected_area"];
-
-                  node(around:{radius_m},{lat},{lon})["route"="hiking"];
-                  way(around:{radius_m},{lat},{lon})["route"="hiking"];
-                  relation(around:{radius_m},{lat},{lon})["route"="hiking"];
-
-                  node(around:{radius_m},{lat},{lon})["tourism"~"viewpoint|attraction"];
-                  way(around:{radius_m},{lat},{lon})["tourism"~"viewpoint|attraction"];
-                  relation(around:{radius_m},{lat},{lon})["tourism"~"viewpoint|attraction"];
-
-                  node(around:{radius_m},{lat},{lon})["natural"~"peak|wood"];
-                  way(around:{radius_m},{lat},{lon})["natural"~"peak|wood"];
-                  relation(around:{radius_m},{lat},{lon})["natural"~"peak|wood"];
-                );
-                out center tags 80;
-                """
-                response = requests.post(
-                    "https://overpass-api.de/api/interpreter",
-                    data={"data": query},
-                    timeout=30,
-                    headers={"User-Agent": "CumbrePark prototype / Python Kivy"},
+        container = self.ids.get("map_container")
+        if not container or getattr(self, "_map_ready", False):
+            return
+        container.clear_widgets()
+        center = app.default_center
+        if MapView is not None:
+            app.map_view = MapView(
+                zoom=int(center.get("zoom", 12)),
+                lat=float(center.get("latitude", -33.4489)),
+                lon=float(center.get("longitude", -70.6693)),
+                size_hint_y=0.68,
+            )
+            container.add_widget(app.map_view)
+        else:
+            container.add_widget(
+                Label(
+                    text="Mapa no disponible en este entorno. En Android usa OpenStreetMap vía kivy_garden.mapview.",
+                    size_hint_y=0.34,
+                    text_size=(None, None),
+                    color=(0.41, 0.45, 0.44, 1),
                 )
-                response.raise_for_status()
-                data = response.json()
-                places = self.parse_places(data, lat, lon)
-                Clock.schedule_once(lambda *_: self.render_places(places), 0)
-            except Exception as exc:
-                Clock.schedule_once(lambda *_: self.render_message(f"No se pudo buscar: {exc}"), 0)
+            )
+        self.station_list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(8), padding=dp(12))
+        self.station_list.bind(minimum_height=self.station_list.setter("height"))
+        scroll = ScrollView(do_scroll_x=False, size_hint_y=0.32)
+        scroll.add_widget(self.station_list)
+        container.add_widget(scroll)
+        self._map_ready = True
 
-        threading.Thread(target=worker, daemon=True).start()
+    def _set_status(self, text: str) -> None:
+        self.status_text = text
+        if "fuel_status" in self.ids:
+            self.ids.fuel_status.text = text
 
-    def parse_places(self, data: dict[str, Any], origin_lat: float, origin_lon: float) -> list[Place]:
-        places: list[Place] = []
-        seen: set[tuple[str, int]] = set()
-        for element in data.get("elements", []):
-            tags = element.get("tags", {}) or {}
-            name = tags.get("name") or tags.get("name:es") or "Lugar sin nombre registrado"
-            lat = element.get("lat") or element.get("center", {}).get("lat")
-            lon = element.get("lon") or element.get("center", {}).get("lon")
-            if lat is None or lon is None:
-                continue
-            key = (str(name).lower(), int(float(lat) * 1000))
-            if key in seen:
-                continue
-            seen.add(key)
-            distance = haversine_km(origin_lat, origin_lon, float(lat), float(lon))
-            places.append(Place(name=str(name), kind=detect_place_kind(tags), lat=float(lat), lon=float(lon), distance_km=distance))
-        places.sort(key=lambda item: item.distance_km)
-        return places[:40]
 
-    def render_places(self, places: list[Place]) -> None:
-        self.results_content.clear_widgets()
-        if not places:
-            self.render_message("No encontré resultados en ese rango. Prueba aumentando la distancia.")
+class OffersScreen(Screen):
+    selected_category = StringProperty("delivery")
+
+    def on_pre_enter(self, *args: Any) -> None:
+        app = App.get_running_app()
+        app.populate_offers_screen(self.selected_category)
+
+
+class SimulatorScreen(Screen):
+    result_text = StringProperty("Completa los datos para estimar tu ahorro.")
+
+    def calculate(self) -> None:
+        App.get_running_app().calculate_fuel_saving(self)
+
+
+class PerkVia99App(App):
+    title = "PerkVia99"
+    icon = str(ICON_PATH)
+    logo_path = StringProperty(str(LOGO_PATH))
+    icon_path = StringProperty(str(ICON_PATH))
+    config_data = DictProperty({})
+    theme_data = DictProperty({})
+    fuel_types = ListProperty([])
+    service_categories = ListProperty([])
+    selected_category = StringProperty("delivery")
+    selected_fuel = StringProperty("gasoline_93")
+
+    map_view = None
+    current_location: Optional[Tuple[float, float]] = None
+    location_source = "fallback"
+    gps_timeout_event = None
+    cache_dir: Path
+    runtime_dir: Path
+
+    def build(self):
+        self.ensure_dirs()
+        self.load_static_data()
+        root = Builder.load_file(str(BASE_DIR / "app.kv"))
+        Clock.schedule_once(lambda _dt: self.apply_branding(root), 0)
+        return root
+
+    @property
+    def default_center(self) -> Dict[str, Any]:
+        return self.config_data.get("default_map_center", DEFAULT_APP_CONFIG["default_map_center"])
+
+    def ensure_dirs(self) -> None:
+        # En Android, los archivos incluidos en el APK son de solo lectura.
+        # Los datos generados deben vivir en el directorio privado de la app.
+        writable_data_dir = Path(self.user_data_dir) / "data"
+        self.cache_dir = writable_data_dir / "cache"
+        self.runtime_dir = writable_data_dir / "runtime"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_static_data(self) -> None:
+        self.config_data = read_json(CONFIG_DIR / "app.json", DEFAULT_APP_CONFIG)
+        if not isinstance(self.config_data, dict):
+            self.config_data = dict(DEFAULT_APP_CONFIG)
+        self.config_data["app_name"] = "PerkVia99"
+
+        loaded_theme = read_json(CONFIG_DIR / "theme.json", {})
+        loaded_colors = loaded_theme.get("colors", {}) if isinstance(loaded_theme, dict) else {}
+        # La identidad PerkVia99 prevalece aunque el theme.json antiguo siga en el proyecto.
+        self.theme_data = {
+            **(loaded_theme if isinstance(loaded_theme, dict) else {}),
+            "colors": {**loaded_colors, **DEFAULT_THEME["colors"]},
+        }
+        self.fuel_types = read_json(DATA_DIR / "fuel_types.json", [])
+        self.service_categories = read_json(DATA_DIR / "service_categories.json", [])
+
+    def apply_branding(self, root: Any) -> None:
+        """Actualiza identidad y TextInput sin alterar la estructura de app.kv."""
+        if root is None:
             return
-        title_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None, height=dp(86))
-        title_panel.add_widget(TitleLabel(text=f"{len(places)} lugares encontrados", size_hint_y=None, height=dp(34)))
-        title_panel.add_widget(MutedLabel(text="Ordenados desde el más cercano al más lejano según tu GPS.", size_hint_y=None, height=dp(30)))
-        self.results_content.add_widget(title_panel)
-        for place in places:
-            self.results_content.add_widget(PlaceCard(place=place))
+        for widget in [root, *list(root.walk(restrict=True))]:
+            if hasattr(widget, "text") and isinstance(widget.text, str):
+                widget.text = widget.text.replace("RutaAhorro", "PerkVia99").replace(
+                    "Ruta Ahorro", "PerkVia99"
+                )
 
+            if isinstance(widget, Image):
+                source_name = Path(widget.source or "").name.lower()
+                if "logo" in source_name and LOGO_PATH.exists():
+                    widget.source = str(LOGO_PATH)
 
-class PlaceCard(RoundedPanel):
-    def __init__(self, place: Place, **kwargs: Any) -> None:
-        super().__init__(orientation="vertical", bg_color=COLORS["white"], size_hint_y=None, height=dp(168), **kwargs)
-        self.place = place
-        self.add_widget(TitleLabel(text=place.name, size_hint_y=None, height=dp(34)))
-        self.add_widget(BodyLabel(text=f"{place.kind}  ·  {place.distance_km:.1f} km", size_hint_y=None, height=dp(28)))
-        self.add_widget(MutedLabel(text=f"Coordenadas: {place.lat:.5f}, {place.lon:.5f}  ·  Fuente: {place.source}", size_hint_y=None, height=dp(34)))
-        actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(42))
-        map_btn = SmallButton(text="Ver en mapa")
-        google_btn = SmallButton(text="Google Maps")
-        map_btn.bind(on_release=lambda *_: App.get_running_app().open_place_in_weather(place))
-        google_btn.bind(on_release=lambda *_: App.get_running_app().open_google_maps(place.lat, place.lon))
-        actions.add_widget(map_btn)
-        actions.add_widget(google_btn)
-        self.add_widget(actions)
+            if isinstance(widget, TextInput):
+                widget.foreground_color = hex_to_rgba("#20242C")
+                widget.cursor_color = hex_to_rgba("#6D20D5")
+                widget.hint_text_color = hex_to_rgba("#68707D", 0.78)
+                widget.background_color = hex_to_rgba("#FFFFFF")
+                widget.disabled_foreground_color = hex_to_rgba("#68707D")
 
+    def navigate(self, screen_name: str) -> None:
+        if self.root and screen_name in self.root.screen_names:
+            current_index = self.root.screen_names.index(self.root.current)
+            next_index = self.root.screen_names.index(screen_name)
+            self.root.transition.direction = "left" if next_index >= current_index else "right"
+            self.root.current = screen_name
 
-class CumbreParkApp(App):
-    current_lat = NumericProperty(DEFAULT_LAT)
-    current_lon = NumericProperty(DEFAULT_LON)
-    status = StringProperty("Listo")
-    settings = DictProperty({})
+    def select_fuel(self, fuel_id: str) -> None:
+        valid_ids = {
+            item.get("id") for item in self.fuel_types if isinstance(item, dict) and item.get("active", True)
+        }
+        if fuel_id not in valid_ids:
+            return
+        self.selected_fuel = fuel_id
+        if self.root and self.root.current == "fuel_map":
+            self.refresh_fuel_screen()
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.title = "CumbrePark"
-        self.has_requested_gps = False
-        self.gps_running = False
-        self.has_real_gps_fix = False
-        self.last_gps_accuracy: Optional[float] = None
-        self.sm: Optional[ScreenManager] = None
+    def open_category(self, category_id: str) -> None:
+        self.selected_category = category_id
+        screen = self.root.get_screen("offers") if self.root else None
+        if screen:
+            screen.selected_category = category_id
+        self.navigate("offers")
 
-    def build(self) -> ScreenManager:
-        Window.clearcolor = COLORS["white"]
-        self.sm = ScreenManager(transition=SlideTransition(duration=0.18))
-        self.sm.add_widget(HomeScreen())
-        self.sm.add_widget(WeatherScreen())
-        self.sm.add_widget(NearbyScreen())
-        return self.sm
+    def open_simulator(
+        self,
+        price_per_liter: Optional[int] = None,
+        discount_per_liter: Optional[int] = None,
+    ) -> None:
+        if self.root:
+            screen: SimulatorScreen = self.root.get_screen("simulator")
+            if price_per_liter is not None:
+                screen.ids.price_input.text = str(price_per_liter)
+            if discount_per_liter is not None:
+                screen.ids.discount_input.text = str(discount_per_liter)
+        self.navigate("simulator")
 
-    def go_to(self, screen_name: str) -> None:
-        if self.sm:
-            self.sm.current = screen_name
+    def calculate_fuel_saving(self, screen: SimulatorScreen) -> None:
+        try:
+            price = max(0.0, float(screen.ids.price_input.text.replace(",", ".")))
+            liters = max(0.0, float(screen.ids.liters_input.text.replace(",", ".")))
+            discount_per_liter = max(0.0, float(screen.ids.discount_input.text.replace(",", ".") or 0))
+            cap = max(0.0, float(screen.ids.cap_input.text.replace(",", ".") or 0))
+        except (TypeError, ValueError):
+            screen.result_text = "Revisa los valores ingresados. Usa solo números."
+            return
+        if price <= 0 or liters <= 0:
+            screen.result_text = "Ingresa un precio y una cantidad de litros mayor que cero."
+            return
+        subtotal = price * liters
+        raw_discount = discount_per_liter * liters
+        saving = min(raw_discount, cap) if cap > 0 else raw_discount
+        saving = min(saving, subtotal)
+        final_total = subtotal - saving
+        effective_price = final_total / liters
+        screen.result_text = (
+            f"TOTAL NORMAL  ${subtotal:,.0f}\n"
+            f"AHORRO ESTIMADO  −${saving:,.0f}\n"
+            f"TOTAL FINAL  ${final_total:,.0f}\n"
+            f"PRECIO EFECTIVO  ${effective_price:,.0f}/L"
+        ).replace(",", ".")
 
-    def go_home(self) -> None:
-        self.go_to("home")
-
-    def set_current_location(self, lat: float, lon: float, accuracy: Optional[float] = None) -> None:
-        # V.0.1.1:
-        # Evita coordenadas inválidas y saltos raros del GPS.
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            self.set_status("GPS entregó una coordenada inválida. Se ignoró.")
+    def request_location_once(self) -> None:
+        self.current_location = None
+        self.location_source = "fallback"
+        if gps is None:
+            self.use_default_location("GPS no disponible en este entorno. Usando Santiago como referencia.")
             return
 
-        if accuracy is not None and accuracy > 5000:
-            self.set_status(f"GPS con poca precisión ({accuracy:.0f} m). Esperando mejor señal...")
-            return
+        # Declarar permisos en buildozer.spec no basta desde Android 6:
+        # también hay que solicitarlos cuando el usuario abre el mapa.
+        if platform == "android":
+            try:
+                from android.permissions import Permission, check_permission, request_permissions
 
-        if self.has_real_gps_fix:
-            jump_km = haversine_km(self.current_lat, self.current_lon, lat, lon)
-            if jump_km > 80 and accuracy is not None and accuracy > 100:
-                self.set_status("GPS inestable: se ignoró un salto extraño de ubicación.")
+                permissions = [Permission.ACCESS_COARSE_LOCATION, Permission.ACCESS_FINE_LOCATION]
+                if all(check_permission(permission) for permission in permissions):
+                    self._start_gps()
+                else:
+                    request_permissions(permissions, self._on_location_permissions)
+                return
+            except Exception:
+                self.use_default_location(
+                    "No fue posible solicitar el permiso de ubicación. Usando Santiago como referencia."
+                )
                 return
 
-        self.current_lat = lat
-        self.current_lon = lon
-        self.last_gps_accuracy = accuracy
-        self.has_real_gps_fix = True
+        self._start_gps()
 
-        for screen in self.sm.screens if self.sm else []:
-            callback = getattr(screen, "on_location_update", None)
-            if callable(callback):
-                callback(lat, lon)
+    def _on_location_permissions(self, _permissions: List[str], grants: List[bool]) -> None:
+        granted = bool(grants) and all(grants)
+        Clock.schedule_once(lambda _dt: self._finish_location_permission(granted), 0)
 
-    def set_status(self, message: str) -> None:
-        self.status = message
-        if self.sm:
-            home = self.sm.get_screen("home")
-            if hasattr(home, "set_status"):
-                home.set_status(message)
+    def _finish_location_permission(self, granted: bool) -> None:
+        if granted:
+            self._start_gps()
+        else:
+            self.use_default_location("Permiso de ubicación rechazado. Usando Santiago como referencia.")
 
-    def request_gps(self) -> None:
-        self.has_requested_gps = True
-        self.set_status("Solicitando permiso de ubicación...")
+    def _start_gps(self) -> None:
         try:
-            from android.permissions import Permission, request_permissions
-
-            request_permissions([Permission.ACCESS_FINE_LOCATION, Permission.ACCESS_COARSE_LOCATION])
+            gps.configure(on_location=self.on_location, on_status=self.on_gps_status)
+            gps.start(minTime=1000, minDistance=0)
+            if self.gps_timeout_event:
+                self.gps_timeout_event.cancel()
+            self.gps_timeout_event = Clock.schedule_once(
+                lambda _dt: self.use_default_location("No se recibió ubicación a tiempo. Usando Santiago como referencia."),
+                8,
+            )
         except Exception:
-            # En computador no existe el módulo android. Se mantiene la coordenada de prueba.
-            pass
+            self.use_default_location("Permiso de ubicación rechazado o no disponible. Usando Santiago como referencia.")
 
-        try:
-            from plyer import gps
-
-            gps.configure(on_location=self._on_gps_location, on_status=self._on_gps_status)
-            gps.start(minTime=5000, minDistance=10)
-            self.gps_running = True
-            self.set_status("GPS iniciado. Esperando coordenadas reales...")
-        except Exception as exc:
-            self.set_status(f"GPS no disponible en este entorno. Usando coordenada de prueba. Detalle: {exc}")
-            self.set_current_location(DEFAULT_LAT, DEFAULT_LON)
-
-    def _on_gps_location(self, **kwargs: Any) -> None:
+    def on_location(self, **kwargs: Any) -> None:
         try:
             lat = float(kwargs.get("lat"))
             lon = float(kwargs.get("lon"))
-            accuracy_raw = kwargs.get("accuracy")
-            accuracy = float(accuracy_raw) if accuracy_raw is not None else None
-            Clock.schedule_once(lambda *_: self.set_current_location(lat, lon, accuracy), 0)
+            # Plyer puede llamar desde otro hilo; la UI se actualiza con Clock.
+            Clock.schedule_once(lambda _dt: self._apply_gps_location(lat, lon), 0)
+        except Exception:
+            Clock.schedule_once(
+                lambda _dt: self.use_default_location("Ubicación inválida. Usando Santiago como referencia."), 0
+            )
+
+    def _apply_gps_location(self, lat: float, lon: float) -> None:
+        self.current_location = (lat, lon)
+        self.location_source = "gps"
+        if self.gps_timeout_event:
+            self.gps_timeout_event.cancel()
+            self.gps_timeout_event = None
+        try:
+            if gps is not None:
+                gps.stop()
         except Exception:
             pass
+        self.refresh_fuel_screen()
 
-    def _on_gps_status(self, status_type: str, status_message: str) -> None:
-        Clock.schedule_once(lambda *_: self.set_status(f"GPS: {status_type} · {status_message}"), 0)
+    def on_gps_status(self, status_type: str, status_message: str) -> None:
+        write_json(
+            self.runtime_dir / "last_gps_status.json",
+            {"status_type": status_type, "status_message": status_message, "updated_at": now_iso()},
+        )
 
-    def open_google_maps(self, lat: Optional[float] = None, lon: Optional[float] = None) -> None:
-        final_lat = self.current_lat if lat is None else lat
-        final_lon = self.current_lon if lon is None else lon
-        webbrowser.open(f"https://www.google.com/maps/search/?api=1&query={final_lat},{final_lon}")
-
-    def open_place_in_weather(self, place: Place) -> None:
-        if not self.sm:
-            return
-        weather_screen = self.sm.get_screen("weather")
-        self.sm.current = "weather"
-        Clock.schedule_once(lambda *_: weather_screen.select_point(place.lat, place.lon), 0.2)
-
-    def on_pause(self) -> bool:
-        return True
-
-    def on_stop(self) -> None:
-        if self.gps_running:
-            try:
-                from plyer import gps
-
+    def use_default_location(self, message: str) -> None:
+        try:
+            if gps is not None:
                 gps.stop()
+        except Exception:
+            pass
+        center = self.default_center
+        self.current_location = (float(center.get("latitude", -33.4489)), float(center.get("longitude", -70.6693)))
+        self.location_source = "fallback"
+        self.refresh_fuel_screen(message)
+
+    def refresh_fuel_screen(self, prefix_message: Optional[str] = None) -> None:
+        if not self.root:
+            return
+        screen: FuelMapScreen = self.root.get_screen("fuel_map")
+        lat, lon = self.current_location or (
+            float(self.default_center.get("latitude", -33.4489)),
+            float(self.default_center.get("longitude", -70.6693)),
+        )
+        if self.map_view is not None:
+            self.map_view.center_on(lat, lon)
+        stations, meta = self.load_fuel_stations(lat, lon)
+        self.render_station_results(screen, stations)
+        count = len(stations)
+        source = meta.get("source", "sin proveedor")
+        freshness = meta.get("freshness", "offline")
+        if count:
+            message = f"{count} estación(es). Fuente: {source}. Estado: {freshness}."
+        else:
+            message = "Sin precios reales: falta conectar proveedor público o caché local."
+        if prefix_message:
+            message = f"{prefix_message} {message}"
+        screen._set_status(message)
+
+    def load_fuel_stations(self, lat: float, lon: float) -> Tuple[List[FuelStation], Dict[str, Any]]:
+        freshness_hours = int(self.config_data.get("data_freshness", {}).get("fuel_prices_hours", 24))
+        cache_path = self.cache_dir / "fuel_stations.json"
+        cached = read_json(cache_path, {})
+        if isinstance(cached, dict):
+            stations = self._normalize_stations(cached.get("stations", []), lat, lon)
+            if stations and cache_is_fresh(cached, freshness_hours):
+                return stations, {"source": cached.get("source", "cache"), "freshness": "cache vigente"}
+            if stations:
+                # Offline-first: conservar datos vencidos y advertirlo, en vez de borrarlos.
+                return stations, {"source": cached.get("source", "cache"), "freshness": "cache antigua"}
+
+        # Stub deliberado: aquí se conectará CNE/u otro proveedor gratuito configurado.
+        # No se inventan precios ni estaciones reales.
+        if not isinstance(cached, dict) or "stations" not in cached:
+            payload = {"cached_at": now_iso(), "source": "stub/offline", "stations": []}
+            write_json(cache_path, payload)
+        return [], {"source": "stub/offline", "freshness": "sin datos publicados"}
+
+    def _normalize_stations(self, raw_stations: Any, lat: float, lon: float) -> List[FuelStation]:
+        stations: List[FuelStation] = []
+        if not isinstance(raw_stations, list):
+            return stations
+        for raw in raw_stations:
+            if not isinstance(raw, dict):
+                continue
+            station = FuelStation.from_dict(raw)
+            if not station:
+                continue
+            station.distance_km = round(haversine_km(lat, lon, station.latitude, station.longitude), 2)
+            stations.append(station)
+        return sorted(stations, key=lambda item: item.distance_km if item.distance_km is not None else 9999)
+
+    def render_station_results(self, screen: FuelMapScreen, stations: List[FuelStation]) -> None:
+        station_list = getattr(screen, "station_list", None)
+        if station_list is None:
+            return
+        station_list.clear_widgets()
+        if self.map_view is not None and MapMarker is not None:
+            try:
+                for child in list(getattr(self.map_view, "children", [])):
+                    if isinstance(child, MapMarker):
+                        self.map_view.remove_widget(child)
             except Exception:
                 pass
+        if not stations:
+            station_list.add_widget(
+                self.info_label(
+                    "Todavía no hay estaciones con precios reales en caché. La app está preparada para CNE/proveedor gratuito y modo offline."
+                )
+            )
+            station_list.add_widget(self.info_label("Sugerencia: agregar búsqueda manual por comuna en la siguiente iteración."))
+            return
+        stations = sorted(
+            stations,
+            key=lambda station: (
+                self.selected_fuel not in station.prices,
+                station.prices.get(self.selected_fuel, 10**9),
+                station.distance_km if station.distance_km is not None else 10**9,
+            ),
+        )
+        for station in stations:
+            if self.map_view is not None and MapMarker is not None:
+                try:
+                    self.map_view.add_marker(MapMarker(lat=station.latitude, lon=station.longitude))
+                except Exception:
+                    pass
+            station_list.add_widget(self.station_card(station))
+
+    def station_card(self, station: FuelStation) -> BoxLayout:
+        box = BoxLayout(orientation="vertical", size_hint_y=None, padding=dp(14), spacing=dp(6))
+        label_by_id = {item.get("id"): item.get("label") for item in self.fuel_types if isinstance(item, dict)}
+        fuel_label = label_by_id.get(self.selected_fuel, self.selected_fuel)
+        selected_price = station.prices.get(self.selected_fuel)
+        price_text = (
+            f"[size=25sp][b]${selected_price:,}/L[/b][/size]".replace(",", ".")
+            if selected_price
+            else "[b]Precio no informado[/b]"
+        )
+        distance = f" · {station.distance_km:.1f} km" if station.distance_km is not None else ""
+        updated = station.updated_at or "sin fecha"
+        text = (
+            f"[b]{station.name}[/b]{distance}\n"
+            f"{station.brand} · {station.address}\n"
+            f"{fuel_label}  {price_text}\n"
+            f"Fuente: {station.source_name} · Actualizado: {updated}"
+        )
+        label = Label(markup=True, text=text, color=(0.09, 0.13, 0.12, 1), text_size=(0, None), halign="left")
+        label.bind(width=lambda instance, width: setattr(instance, "text_size", (width, None)))
+        label.bind(texture_size=lambda instance, size: setattr(box, "height", size[1] + dp(24)))
+        box.add_widget(label)
+        return box
+
+    def populate_offers_screen(self, category_id: str) -> None:
+        if not self.root:
+            return
+        screen: OffersScreen = self.root.get_screen("offers")
+        categories = {item.get("id"): item for item in self.service_categories if isinstance(item, dict)}
+        category = categories.get(category_id, {"label": "Promociones", "brands": []})
+        title = category.get("label", "Promociones y códigos")
+        if "offers_title" in screen.ids:
+            screen.ids.offers_title.text = f"{title}: descuentos y códigos"
+        offer_list = screen.ids.get("offers_list")
+        if not offer_list:
+            return
+        offer_list.clear_widgets()
+        promotions = self.load_promotions(category_id)
+        brands = category.get("brands", []) if isinstance(category.get("brands"), list) else []
+        if brands:
+            offer_list.add_widget(self.info_label("Marcas preparadas: " + ", ".join(brands)))
+        if promotions:
+            for promo in promotions:
+                offer_list.add_widget(self.promotion_card(promo))
+        else:
+            offer_list.add_widget(
+                self.info_label(
+                    "No hay códigos verificados para mostrar. La app no inventa promociones: cada código debe tener fuente, fecha y condiciones."
+                )
+            )
+        if "offers_status" in screen.ids:
+            screen.ids.offers_status.text = "Modo gratis/offline. Los códigos reales deben verificarse antes de publicarse."
+
+    def load_promotions(self, category_id: str) -> List[Promotion]:
+        raw_items = read_json(DATA_DIR / "promotions.sample.json", [])
+        promos: List[Promotion] = []
+        if not isinstance(raw_items, list):
+            return promos
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            promo = Promotion.from_dict(raw)
+            if not promo or promo.category != category_id:
+                continue
+            # Un ejemplo, un aporte aislado o un registro sin respaldo nunca
+            # se publica automáticamente como beneficio utilizable.
+            if promo.status == "example_not_published":
+                continue
+            if promo.status not in {"official_verified", "community_verified", "probably_active"}:
+                continue
+            if promo.verification_score < 55:
+                continue
+            promos.append(promo)
+        return sorted(promos, key=lambda item: item.verification_score, reverse=True)
+
+    def promotion_card(self, promo: Promotion) -> BoxLayout:
+        box = BoxLayout(orientation="vertical", size_hint_y=None, padding=dp(10), spacing=dp(4))
+        status = f"{promo.verification_label.upper()} · {promo.verification_score}% CONFIANZA"
+        code = f"Código: {promo.code}" if promo.code else "Sin código visible"
+        verified = promo.verified_at or "sin fecha de verificación"
+        terms = "\n".join(f"• {item}" for item in promo.terms) if promo.terms else "Sin condiciones cargadas"
+        text = (
+            f"[b]{promo.brand or 'Marca'} · {status}[/b]\n"
+            f"{promo.title}\n{promo.description}\n"
+            f"{code}\nVigencia: {promo.expires_at or 'no informada'} · Verificado: {verified}\n{terms}"
+        )
+        label = Label(markup=True, text=text, color=(0.09, 0.13, 0.12, 1), text_size=(0, None), halign="left")
+        label.bind(width=lambda instance, width: setattr(instance, "text_size", (width, None)))
+        label.bind(texture_size=lambda instance, size: setattr(box, "height", size[1] + dp(24)))
+        box.add_widget(label)
+        return box
+
+    def info_label(self, text: str) -> Label:
+        label = Label(
+            text=text,
+            size_hint_y=None,
+            color=(0.41, 0.45, 0.44, 1),
+            text_size=(0, None),
+            halign="left",
+            valign="top",
+            padding=(0, dp(6)),
+        )
+        label.bind(width=lambda instance, width: setattr(instance, "text_size", (width, None)))
+        label.bind(texture_size=lambda instance, size: setattr(instance, "height", size[1] + dp(16)))
+        return label
 
 
 if __name__ == "__main__":
-    CumbreParkApp().run()
+    PerkVia99App().run()
