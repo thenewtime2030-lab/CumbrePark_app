@@ -480,7 +480,7 @@ class PrimaryButton(Button):
         self.font_size = "16sp"
         self.bold = True
         self.size_hint_y = None
-        self.height = dp(52)
+        self.height = dp(46)
 
 
 class SecondaryButton(Button):
@@ -663,19 +663,19 @@ class CollapsibleCategory(RoundedPanel):
         super().__init__(orientation="vertical", size_hint_y=None, bg_color=COLORS["soft"], **kwargs)
         self.options = options
         self.is_open = False
-        self._base_height = dp(52) + self.padding[1] + self.padding[3]
-        self._option_height = dp(48)
+        self._base_height = dp(46) + self.padding[1] + self.padding[3]
+        self._option_height = dp(44)
         self._option_spacing = dp(8)
         self.height = self._base_height
 
-        self.toggle_btn = PrimaryButton(text=f"{title}  ▾", size_hint_y=None, height=dp(52))
+        self.toggle_btn = PrimaryButton(text=f"{title}  ▾", size_hint_y=None, height=dp(46))
         self.toggle_btn.bind(on_release=self.toggle)
         self.add_widget(self.toggle_btn)
 
         self.options_box = BoxLayout(orientation="vertical", spacing=self._option_spacing, size_hint_y=None, height=0, opacity=0)
 
         for text_btn, screen in self.options:
-            btn = SecondaryButton(text=text_btn, height=dp(48))
+            btn = SecondaryButton(text=text_btn, height=dp(44))
             btn.bind(on_release=lambda *_ , s=screen: App.get_running_app().go_to(s))
             self.options_box.add_widget(btn)
 
@@ -736,7 +736,7 @@ class PlaceholderScreen(Screen):
             future.add_widget(feature_line)
         content.add_widget(future)
 
-        back_btn = PrimaryButton(text="Volver al inicio", size_hint_y=None, height=dp(52))
+        back_btn = PrimaryButton(text="Volver al inicio", size_hint_y=None, height=dp(46))
         back_btn.bind(on_release=lambda *_: App.get_running_app().go_home())
         content.add_widget(back_btn)
 
@@ -970,7 +970,15 @@ class DownloadMapScreen(Screen):
 
         self.status_label = MutedLabel(text="Escribe un nombre para comenzar.", size_hint_y=None, height=dp(44))
         body.add_widget(self.status_label)
-        self.results_box = GridLayout(cols=1, rows=SEARCH_PAGE_SIZE, spacing=dp(7))
+        self.results_box = GridLayout(
+            cols=1,
+            rows=SEARCH_PAGE_SIZE,
+            spacing=dp(7),
+            size_hint_y=None,
+            height=dp(260),
+            row_default_height=dp(60),
+            row_force_default=True,
+        )
         body.add_widget(self.results_box)
 
         pager = GridLayout(cols=3, spacing=dp(8), size_hint_y=None, height=dp(44))
@@ -1126,7 +1134,15 @@ class RouteDetailScreen(Screen):
         body.add_widget(self.place_label)
         self.status_label = MutedLabel(text="Buscando senderos publicados...", size_hint_y=None, height=dp(48))
         body.add_widget(self.status_label)
-        self.route_buttons = GridLayout(cols=1, rows=3, spacing=dp(7), size_hint_y=0.34)
+        self.route_buttons = GridLayout(
+            cols=1,
+            rows=3,
+            spacing=dp(7),
+            size_hint_y=None,
+            height=dp(158),
+            row_default_height=dp(48),
+            row_force_default=True,
+        )
         body.add_widget(self.route_buttons)
         self.preview = OfflineTrailMap(size_hint_y=0.48)
         body.add_widget(self.preview)
@@ -1417,7 +1433,7 @@ class HomeScreen(Screen):
         self.status_label.bind(size=lambda instance, _size: setattr(instance, "text_size", instance.size))
         root.add_widget(self.status_label)
 
-        action_grid = GridLayout(cols=2, rows=3, spacing=dp(10), size_hint_y=0.70)
+        action_grid = GridLayout(cols=2, rows=3, spacing=dp(10), size_hint_y=0.35)
         actions = [
             ("Mapa + clima\nPronóstico del punto", "weather", True),
             ("Lugares cercanos\nSenderos y parques", "nearby", True),
@@ -1431,6 +1447,7 @@ class HomeScreen(Screen):
             button.bind(on_release=lambda _button, target=screen_name: App.get_running_app().go_to(target))
             action_grid.add_widget(button)
         root.add_widget(action_grid)
+        root.add_widget(Widget(size_hint_y=0.35))
 
     def set_status(self, message: str) -> None:
         self.status_label.text = message
