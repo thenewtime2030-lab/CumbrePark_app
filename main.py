@@ -270,6 +270,8 @@ class Place:
     lon: float
     distance_km: float
     source: str = "OpenStreetMap"
+    quality_score: int = 0
+    locality: str = ""
 
 
 @dataclass
@@ -281,6 +283,8 @@ class SearchPlace:
     display_name: str = ""
     source: str = "OpenStreetMap"
     score: float = 0.0
+    locality: str = ""
+    distance_km: Optional[float] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -293,6 +297,8 @@ class TrailRoute:
     segments: list[list[tuple[float, float]]]
     source: str = "OpenStreetMap"
     distance_km: float = 0.0
+    reliability: int = 3
+    route_type: str = "Sendero OSM"
 
     def to_geojson(self) -> dict[str, Any]:
         coordinates = [
@@ -306,6 +312,8 @@ class TrailRoute:
                 "name": self.name,
                 "source": self.source,
                 "distance_km": round(self.distance_km, 3),
+                "reliability": self.reliability,
+                "route_type": self.route_type,
             },
             "geometry": {"type": "MultiLineString", "coordinates": coordinates},
         }
@@ -378,6 +386,68 @@ def decimate_segment(segment: list[tuple[float, float]], max_points: int = 120) 
     if reduced[-1] != segment[-1]:
         reduced.append(segment[-1])
     return reduced
+
+
+def place_locality(address: dict[str, Any]) -> str:
+    locality = (
+        address.get("municipality") or address.get("city") or address.get("town")
+        or address.get("village") or address.get("county") or ""
+    )
+    region = address.get("state") or address.get("region") or ""
+    parts = [str(part).strip() for part in (locality, region) if str(part).strip()]
+    return ", ".join(dict.fromkeys(parts))
+
+
+def outdoor_place_quality(tags: dict[str, Any], name: str, element_type: str = "node") -> tuple[int, str]:
+    """Return a semantic outdoor score; zero means the object should not be shown."""
+    clean_name = normalize_search_text(name)
+    if not clean_name:
+        return 0, ""
+    boundary = tags.get("boundary")
+    leisure = tags.get("leisure")
+    natural = tags.get("natural")
+    tourism = tags.get("tourism")
+    route = tags.get("route")
+    protected = bool(tags.get("protect_class") or tags.get("protection_title"))
+    documented = bool(tags.get("wikidata") or tags.get("wikipedia") or tags.get("website"))
+    operator = normalize_search_text(tags.get("operator", ""))
+
+    if route in {"hiking", "foot"}:
+        return 92 if element_type == "relation" else 82, "Ruta de trekking"
+    if boundary in {"protected_area", "national_park"}:
+        return 96, "Área protegida"
+    if leisure == "nature_reserve":
+        return 93, "Reserva natural"
+    if natural in {"peak", "volcano"}:
+        return 88, "Cumbre / cerro"
+    if natural == "waterfall":
+        return 78, "Cascada"
+    if tourism == "viewpoint":
+        return 70 if documented or tags.get("hiking") else 62, "Mirador"
+    if leisure == "park":
+        destination_words = (
+            "parque nacional", "parque natural", "parque metropolitano", "reserva",
+            "santuario", "monumento natural", "area protegida",
+        )
+        is_destination = any(word in clean_name for word in destination_words)
+        managed_outdoor = protected or "conaf" in operator or documented
+        if is_destination or managed_outdoor:
+            return 84 if is_destination else 68, "Parque outdoor"
+    return 0, ""
+
+
+def format_bytes(size_bytes: int) -> str:
+    size = max(0, int(size_bytes))
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def reliability_stars(level: int) -> str:
+    safe_level = int(clamp(level, 1, 5))
+    return ("★" * safe_level) + ("☆" * (5 - safe_level))
 
 
 def rgba_to_hex(color: tuple[float, float, float, float]) -> str:
@@ -946,8 +1016,13 @@ class DownloadMapScreen(Screen):
         root.canvas.before.add(Color(*COLORS["background"]))
         self.add_widget(root)
         root.add_widget(Header("Buscar y descargar ruta"))
-        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
-        root.add_widget(body)
+        body_anchor = AnchorLayout(anchor_x="center", anchor_y="top")
+        root.add_widget(body_anchor)
+        body = BoxLayout(
+            orientation="vertical", padding=dp(12), spacing=dp(9),
+            size_hint_y=None, height=dp(600),
+        )
+        body_anchor.add_widget(body)
 
         intro = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(76), bg_color=COLORS["soft"])
         intro.add_widget(TitleLabel(text="Busca un parque, reserva o sendero", size_hint_y=None, height=dp(28), font_size="18sp"))
@@ -992,8 +1067,8 @@ class DownloadMapScreen(Screen):
         pager.add_widget(following)
         body.add_widget(pager)
 
-        saved_button = PrimaryButton(text="Abrir última ruta descargada", size_hint_y=None, height=dp(48))
-        saved_button.bind(on_release=lambda *_: self.open_saved_route())
+        saved_button = PrimaryButton(text="Mis mapas descargados", size_hint_y=None, height=dp(46))
+        saved_button.bind(on_release=lambda *_: App.get_running_app().go_to("offline_library"))
         body.add_widget(saved_button)
         self.render_results()
 
@@ -1004,14 +1079,14 @@ class DownloadMapScreen(Screen):
         candidates: list[SearchPlace] = []
         for name, kind, lat, lon, aliases in OUTDOOR_CATALOG:
             score = max(fuzzy_similarity(query, name), *(fuzzy_similarity(query, alias) for alias in aliases))
-            if score >= 0.43:
+            if score >= 0.62:
                 candidates.append(SearchPlace(name, kind, lat, lon, name, "Catálogo local", score))
         cache = read_json(App.get_running_app().data_dir / "place_search_cache.json", [])
         for item in cache if isinstance(cache, list) else []:
             try:
                 place = SearchPlace(**item)
                 place.score = fuzzy_similarity(query, f"{place.name} {place.display_name}")
-                if place.score >= 0.43:
+                if place.score >= 0.62:
                     candidates.append(place)
             except (TypeError, ValueError):
                 continue
@@ -1034,7 +1109,7 @@ class DownloadMapScreen(Screen):
         def worker() -> None:
             remote: list[SearchPlace] = []
             best_local = max(local, key=lambda item: item.score) if local else None
-            search_term = best_local.name if best_local and best_local.score >= 0.58 else query
+            search_term = best_local.name if best_local and best_local.score >= 0.74 else query
             try:
                 response = requests.get(
                     "https://nominatim.openstreetmap.org/search",
@@ -1050,18 +1125,49 @@ class DownloadMapScreen(Screen):
                     name = item.get("name") or str(item.get("display_name", "")).split(",")[0]
                     if not name:
                         continue
-                    kind = str(item.get("type") or item.get("category") or "lugar outdoor").replace("_", " ")
-                    score = max(fuzzy_similarity(query, name), fuzzy_similarity(search_term, name))
-                    if score >= 0.35:
+                    result_type = normalize_search_text(item.get("type") or item.get("category") or "")
+                    normalized_name = normalize_search_text(name)
+                    outdoor_words = (
+                        "parque", "reserva", "sendero", "cerro", "volcan", "mirador",
+                        "cumbre", "santuario", "cascada", "monumento natural",
+                    )
+                    allowed_types = {
+                        "national park", "nature reserve", "protected area", "park", "peak",
+                        "volcano", "viewpoint", "hiking", "trail", "reserve", "waterfall",
+                    }
+                    if result_type not in allowed_types and not any(word in normalized_name for word in outdoor_words):
+                        continue
+                    kind_names = {
+                        "viewpoint": "Mirador", "peak": "Cumbre / cerro", "volcano": "Volcán",
+                        "park": "Parque", "national park": "Parque nacional",
+                        "nature reserve": "Reserva natural", "protected area": "Área protegida",
+                        "waterfall": "Cascada", "trail": "Sendero", "hiking": "Ruta de trekking",
+                    }
+                    kind = kind_names.get(result_type, result_type.title() or "Lugar outdoor")
+                    score = fuzzy_similarity(query, name)
+                    if best_local and normalize_search_text(best_local.name) == normalize_search_text(name):
+                        score = max(score, best_local.score)
+                    if score >= 0.56:
+                        address = item.get("address") or {}
+                        locality = place_locality(address)
+                        app = App.get_running_app()
+                        distance = (
+                            haversine_km(app.current_lat, app.current_lon, float(item["lat"]), float(item["lon"]))
+                            if app.has_real_gps_fix else None
+                        )
                         remote.append(SearchPlace(
                             name=str(name), kind=kind, lat=float(item["lat"]), lon=float(item["lon"]),
-                            display_name=str(item.get("display_name", name)), source="Nominatim / OpenStreetMap", score=score,
+                            display_name=str(item.get("display_name", name)), source="Nominatim + OSM", score=score,
+                            locality=locality, distance_km=distance,
                         ))
             except (requests.RequestException, ValueError, KeyError, TypeError):
                 pass
-            merged: dict[tuple[str, int, int], SearchPlace] = {}
+            merged: dict[tuple[str, str], SearchPlace] = {}
             for place in local + remote:
-                key = (normalize_search_text(place.name), round(place.lat * 100), round(place.lon * 100))
+                locality_key = normalize_search_text(place.locality)
+                if not locality_key:
+                    locality_key = f"{round(place.lat, 2)}:{round(place.lon, 2)}"
+                key = (normalize_search_text(place.name), locality_key)
                 existing = merged.get(key)
                 if existing is None or place.score > existing.score or place.source.startswith("Nominatim"):
                     merged[key] = place
@@ -1078,10 +1184,13 @@ class DownloadMapScreen(Screen):
             cache_path = App.get_running_app().data_dir / "place_search_cache.json"
             current = read_json(cache_path, [])
             combined = [item for item in current if isinstance(item, dict)] + [place.to_dict() for place in remote]
-            unique: dict[tuple[str, int, int], dict[str, Any]] = {}
+            unique: dict[tuple[str, str], dict[str, Any]] = {}
             for item in combined:
                 try:
-                    unique[(normalize_search_text(item["name"]), round(float(item["lat"]) * 1000), round(float(item["lon"]) * 1000))] = item
+                    locality_key = normalize_search_text(item.get("locality", ""))
+                    if not locality_key:
+                        locality_key = f"{round(float(item['lat']), 2)}:{round(float(item['lon']), 2)}"
+                    unique[(normalize_search_text(item["name"]), locality_key)] = item
                 except (KeyError, TypeError, ValueError):
                     continue
             atomic_write_json(cache_path, list(unique.values())[-100:])
@@ -1095,7 +1204,9 @@ class DownloadMapScreen(Screen):
         start = self.page * SEARCH_PAGE_SIZE
         visible = self.results[start:start + SEARCH_PAGE_SIZE]
         for place in visible:
-            button = RouteResultButton(text=f"{place.name}\n{place.kind} · {place.source}")
+            location = place.locality or "Ubicación indicada en el mapa"
+            distance = f" · {place.distance_km:.0f} km" if place.distance_km is not None else ""
+            button = RouteResultButton(text=f"{place.name}\n{location}{distance} · {place.kind}")
             button.bind(on_release=lambda _button, selected=place: self.open_place(selected))
             self.results_box.add_widget(button)
         for _ in range(SEARCH_PAGE_SIZE - len(visible)):
@@ -1111,11 +1222,6 @@ class DownloadMapScreen(Screen):
         screen.set_place(place)
         App.get_running_app().go_to("route_detail")
 
-    def open_saved_route(self) -> None:
-        if not App.get_running_app().load_offline_route():
-            self.set_status("Todavía no hay una ruta descargada en este dispositivo.")
-
-
 class RouteDetailScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -1123,6 +1229,7 @@ class RouteDetailScreen(Screen):
         self.place: Optional[SearchPlace] = None
         self.routes: list[TrailRoute] = []
         self.selected_route: Optional[TrailRoute] = None
+        self.context_segments: list[list[tuple[float, float]]] = []
 
         root = BoxLayout(orientation="vertical")
         root.canvas.before.add(Color(*COLORS["background"]))
@@ -1139,8 +1246,8 @@ class RouteDetailScreen(Screen):
             rows=3,
             spacing=dp(7),
             size_hint_y=None,
-            height=dp(158),
-            row_default_height=dp(48),
+            height=dp(188),
+            row_default_height=dp(58),
             row_force_default=True,
         )
         body.add_widget(self.route_buttons)
@@ -1159,7 +1266,9 @@ class RouteDetailScreen(Screen):
         self.place = place
         self.routes = []
         self.selected_route = None
-        self.place_label.text = f"{place.name}\n{place.kind}"
+        self.context_segments = []
+        location = f" · {place.locality}" if place.locality else ""
+        self.place_label.text = f"{place.name}\n{place.kind}{location}"
         self.status_label.text = "Buscando senderos publicados alrededor..."
         self.preview.set_data([])
         self.render_route_buttons()
@@ -1168,25 +1277,34 @@ class RouteDetailScreen(Screen):
     def _route_worker(self) -> None:
         if not self.place:
             return
-        radius_m = 20000
+        radius_m = 12000
         query = f"""
         [out:json][timeout:30];
         (
           relation(around:{radius_m},{self.place.lat},{self.place.lon})["route"~"hiking|foot"];
-          way(around:{radius_m},{self.place.lat},{self.place.lon})["highway"~"path|footway|track"]["name"];
+          way(around:{radius_m},{self.place.lat},{self.place.lon})["highway"~"path|footway|track|pedestrian"];
+          way(around:4000,{self.place.lat},{self.place.lon})["highway"~"secondary|tertiary|residential|service"];
         );
-        out tags geom 100;
+        out tags geom 260;
         """
         try:
             data = overpass_json(query)
-            ranked_routes: list[tuple[float, TrailRoute]] = []
+            ranked_routes: list[tuple[int, float, TrailRoute]] = []
+            context: list[list[tuple[float, float]]] = []
             seen: set[str] = set()
             for element in data.get("elements", []):
                 segments = parse_osm_segments(element)
                 if not segments:
                     continue
                 tags = element.get("tags", {}) or {}
-                name = str(tags.get("name") or tags.get("ref") or "Sendero sin nombre")
+                if element.get("type") == "way":
+                    context.extend(decimate_segment(segment, 80) for segment in segments)
+                relation_route = element.get("type") == "relation" and tags.get("route") in {"hiking", "foot"}
+                trail_way = tags.get("highway") in {"path", "footway", "track", "pedestrian"}
+                if not relation_route and not trail_way:
+                    continue
+                named_way = bool(tags.get("name") or tags.get("ref"))
+                name = str(tags.get("name") or tags.get("ref") or f"Sendero alternativo {len(ranked_routes) + 1}")
                 key = normalize_search_text(name)
                 if key in seen:
                     continue
@@ -1198,17 +1316,40 @@ class RouteDetailScreen(Screen):
                         haversine_km(self.place.lat, self.place.lon, lat, lon)
                         for segment in segments for lat, lon in segment[::max(1, len(segment) // 30)]
                     )
-                    ranked_routes.append((nearest, TrailRoute(route_id, name, segments, distance_km=distance)))
-            ranked_routes.sort(key=lambda item: ("sin nombre" in item[1].name.lower(), item[0]))
-            routes = [route for _nearest, route in ranked_routes[:12]]
-            Clock.schedule_once(lambda _dt: self.finish_routes(routes), 0)
+                    metadata = bool(tags.get("operator") or tags.get("network") or tags.get("ref") or tags.get("wikidata"))
+                    trail_metadata = bool(tags.get("sac_scale") or tags.get("surface") or tags.get("trail_visibility"))
+                    if relation_route:
+                        reliability = 5 if metadata else 4
+                        route_type = "Ruta OSM publicada"
+                    elif named_way:
+                        reliability = 3 if trail_metadata else 2
+                        route_type = "Sendero OSM con nombre"
+                    else:
+                        reliability = 1
+                        route_type = "Trazado OSM alternativo"
+                    if reliability >= 2 or nearest <= 3.0:
+                        route = TrailRoute(
+                            route_id, name, segments, distance_km=distance,
+                            reliability=reliability, route_type=route_type,
+                        )
+                        ranked_routes.append((reliability, nearest, route))
+            ranked_routes.sort(key=lambda item: (-item[0], item[1], item[2].distance_km))
+            routes = [route for _reliability, _nearest, route in ranked_routes[:3]]
+            context = context[:120]
+            Clock.schedule_once(lambda _dt: self.finish_routes(routes, context=context), 0)
         except Exception as exc:
             Clock.schedule_once(lambda _dt, error=str(exc): self.finish_routes([], error), 0)
 
-    def finish_routes(self, routes: list[TrailRoute], error: str = "") -> None:
+    def finish_routes(
+        self,
+        routes: list[TrailRoute],
+        error: str = "",
+        context: Optional[list[list[tuple[float, float]]]] = None,
+    ) -> None:
         self.routes = routes
+        self.context_segments = context or []
         if routes:
-            self.status_label.text = f"{len(routes)} senderos encontrados. Selecciona uno para ver su trazado."
+            self.status_label.text = f"{len(routes)} mejores alternativas, ordenadas por fiabilidad y cercanía."
             self.select_route(routes[0])
         elif error:
             self.status_label.text = "No fue posible consultar senderos ahora. Revisa tu conexión e intenta nuevamente."
@@ -1220,7 +1361,13 @@ class RouteDetailScreen(Screen):
         self.route_buttons.clear_widgets()
         for route in self.routes[:3]:
             selected = route is self.selected_route
-            button = RouteResultButton(text=f"{'● ' if selected else ''}{route.name} · {route.distance_km:.1f} km")
+            location = self.place.locality if self.place and self.place.locality else "zona seleccionada"
+            button = RouteResultButton(
+                text=(
+                    f"{'● ' if selected else ''}{reliability_stars(route.reliability)}  {route.name} · {route.distance_km:.1f} km\n"
+                    f"{route.route_type} · {location}"
+                )
+            )
             if selected:
                 button.background_color = COLORS["teal"]
             button.bind(on_release=lambda _button, item=route: self.select_route(item))
@@ -1232,8 +1379,13 @@ class RouteDetailScreen(Screen):
         self.selected_route = route
         App.get_running_app().selected_place = self.place
         App.get_running_app().selected_route = route
-        self.preview.set_data(route.segments)
-        self.status_label.text = f"{route.name}: {route.distance_km:.1f} km de geometría publicada."
+        App.get_running_app().offline_context_segments = self.context_segments
+        self.preview.set_data(route.segments, self.context_segments)
+        point_count = sum(len(segment) for segment in route.segments + self.context_segments)
+        estimated_size = format_bytes(max(2048, point_count * 24))
+        self.status_label.text = (
+            f"Fiabilidad {route.reliability}/5 · {route.distance_km:.1f} km · descarga estimada {estimated_size}."
+        )
         self.render_route_buttons()
 
     def download_selected(self) -> None:
@@ -1244,36 +1396,16 @@ class RouteDetailScreen(Screen):
         threading.Thread(target=self._download_worker, args=(self.place, self.selected_route), daemon=True).start()
 
     def _download_worker(self, place: SearchPlace, route: TrailRoute) -> None:
-        points = [point for segment in route.segments for point in segment]
-        center_lat = sum(point[0] for point in points) / len(points)
-        center_lon = sum(point[1] for point in points) / len(points)
-        radius_km = max(haversine_km(center_lat, center_lon, *point) for point in points) + 1.5
-        radius_m = int(clamp(radius_km, 2.0, 12.0) * 1000)
-        query = f"""
-        [out:json][timeout:35];
-        way(around:{radius_m},{center_lat},{center_lon})["highway"~"path|footway|track|pedestrian"];
-        out tags geom 350;
-        """
-        context: list[list[tuple[float, float]]] = []
-        context_partial = False
-        try:
-            data = overpass_json(query, timeout=45)
-            context = [
-                decimate_segment(segment)
-                for element in data.get("elements", [])[:180]
-                for segment in parse_osm_segments(element)
-            ]
-        except Exception:
-            context_partial = True
+        context = self.context_segments
         try:
             bundle = {
-                "version": 1,
+                "version": 2,
                 "saved_at": utc_now_iso(),
                 "place": place.to_dict(),
                 "route": route.to_geojson(),
                 "context": {
                     "type": "Feature",
-                    "properties": {"source": "OpenStreetMap", "radius_km": round(radius_m / 1000, 1)},
+                    "properties": {"source": "OpenStreetMap + Overpass"},
                     "geometry": {
                         "type": "MultiLineString",
                         "coordinates": [[[lon, lat] for lat, lon in segment] for segment in context],
@@ -1281,21 +1413,19 @@ class RouteDetailScreen(Screen):
                 },
             }
             app = App.get_running_app()
-            atomic_write_json(app.offline_route_path, bundle)
+            route_path = app.save_offline_route(bundle, place, route)
+            size_bytes = route_path.stat().st_size
             Clock.schedule_once(
-                lambda _dt, partial=context_partial: self.finish_download(context, partial), 0
+                lambda _dt: self.finish_download(context, size_bytes), 0
             )
         except Exception as exc:
             Clock.schedule_once(lambda _dt, error=str(exc): self.set_download_error(error), 0)
 
-    def finish_download(self, context: list[list[tuple[float, float]]], partial: bool = False) -> None:
+    def finish_download(self, context: list[list[tuple[float, float]]], size_bytes: int) -> None:
         App.get_running_app().offline_context_segments = context
         if self.selected_route:
             self.preview.set_data(self.selected_route.segments, context)
-        if partial:
-            self.status_label.text = "Ruta GeoJSON guardada. La red secundaria no respondió, pero el recorrido funciona offline."
-        else:
-            self.status_label.text = "Ruta y mapa vectorial guardados. Ya pueden abrirse sin conexión."
+        self.status_label.text = f"Ruta y mapa guardados: {format_bytes(size_bytes)}. Disponibles sin conexión."
 
     def set_download_error(self, _error: str) -> None:
         self.status_label.text = "No se pudo completar la descarga. Conserva conexión e inténtalo nuevamente."
@@ -1360,6 +1490,77 @@ class RouteNavigationScreen(Screen):
             self.status_label.text = f"En ruta{accuracy}"
         else:
             self.status_label.text = f"Atención: estás a {distance * 1000:.0f} m del recorrido{accuracy}"
+
+
+class OfflineLibraryScreen(Screen):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.name = "offline_library"
+        self.entries: list[dict[str, Any]] = []
+        self.page = 0
+        root = BoxLayout(orientation="vertical")
+        root.canvas.before.add(Color(*COLORS["background"]))
+        self.add_widget(root)
+        root.add_widget(Header("Mapas descargados", back_target="download_map"))
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
+        root.add_widget(body)
+        self.status_label = MutedLabel(
+            text="Las rutas guardadas funcionan sin conexión.", size_hint_y=None, height=dp(46),
+        )
+        body.add_widget(self.status_label)
+        self.entries_box = GridLayout(
+            cols=1, rows=4, spacing=dp(8), size_hint_y=None, height=dp(264),
+            row_default_height=dp(60), row_force_default=True,
+        )
+        body.add_widget(self.entries_box)
+        pager = GridLayout(cols=3, spacing=dp(8), size_hint_y=None, height=dp(44))
+        previous = SecondaryButton(text="Anterior")
+        previous.bind(on_release=lambda *_: self.change_page(-1))
+        self.page_label = MutedLabel(text="Página 1/1")
+        following = SecondaryButton(text="Siguiente")
+        following.bind(on_release=lambda *_: self.change_page(1))
+        pager.add_widget(previous)
+        pager.add_widget(self.page_label)
+        pager.add_widget(following)
+        body.add_widget(pager)
+        body.add_widget(Widget())
+
+    def on_pre_enter(self, *_: Any) -> None:
+        self.entries = App.get_running_app().list_offline_routes()
+        self.page = 0
+        total_size = sum(int(entry.get("size_bytes", 0)) for entry in self.entries)
+        self.status_label.text = (
+            f"{len(self.entries)} mapas · {format_bytes(total_size)} almacenados en este dispositivo."
+            if self.entries else "Todavía no hay rutas descargadas."
+        )
+        self.render_entries()
+
+    def render_entries(self) -> None:
+        self.entries_box.clear_widgets()
+        total_pages = max(1, math.ceil(len(self.entries) / 4))
+        self.page = int(clamp(self.page, 0, total_pages - 1))
+        visible = self.entries[self.page * 4:(self.page + 1) * 4]
+        for entry in visible:
+            location = entry.get("locality") or "Ubicación guardada"
+            stars = reliability_stars(int(entry.get("reliability", 1)))
+            button = RouteResultButton(
+                text=(
+                    f"{stars}  {entry.get('route_name', 'Ruta offline')}\n"
+                    f"{location} · {format_bytes(int(entry.get('size_bytes', 0)))}"
+                )
+            )
+            button.bind(
+                on_release=lambda _button, filename=str(entry.get("filename", "")):
+                App.get_running_app().load_offline_route(filename)
+            )
+            self.entries_box.add_widget(button)
+        for _ in range(4 - len(visible)):
+            self.entries_box.add_widget(Widget())
+        self.page_label.text = f"Página {self.page + 1}/{total_pages}"
+
+    def change_page(self, delta: int) -> None:
+        self.page += delta
+        self.render_entries()
 
 
 class HomeActionButton(Button):
@@ -1833,7 +2034,7 @@ class NearbyScreen(Screen):
                 query = f"""
                 [out:json][timeout:25];
                 (
-                  node(around:{radius_m},{origin_lat},{origin_lon})["leisure"~"park|nature_reserve"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["leisure"="nature_reserve"];
                   way(around:{radius_m},{origin_lat},{origin_lon})["leisure"~"park|nature_reserve"];
                   relation(around:{radius_m},{origin_lat},{origin_lon})["leisure"~"park|nature_reserve"];
 
@@ -1841,52 +2042,53 @@ class NearbyScreen(Screen):
                   way(around:{radius_m},{origin_lat},{origin_lon})["boundary"="protected_area"];
                   relation(around:{radius_m},{origin_lat},{origin_lon})["boundary"="protected_area"];
 
-                  node(around:{radius_m},{origin_lat},{origin_lon})["route"="hiking"];
-                  way(around:{radius_m},{origin_lat},{origin_lon})["route"="hiking"];
-                  relation(around:{radius_m},{origin_lat},{origin_lon})["route"="hiking"];
+                  relation(around:{radius_m},{origin_lat},{origin_lon})["route"~"hiking|foot"];
 
-                  node(around:{radius_m},{origin_lat},{origin_lon})["tourism"~"viewpoint|attraction"];
-                  way(around:{radius_m},{origin_lat},{origin_lon})["tourism"~"viewpoint|attraction"];
-                  relation(around:{radius_m},{origin_lat},{origin_lon})["tourism"~"viewpoint|attraction"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["tourism"="viewpoint"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["tourism"="viewpoint"];
 
-                  node(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|wood"];
-                  way(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|wood"];
-                  relation(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|wood"];
+                  node(around:{radius_m},{origin_lat},{origin_lon})["natural"~"peak|volcano|waterfall"];
+                  way(around:{radius_m},{origin_lat},{origin_lon})["natural"="waterfall"];
                 );
-                out center tags 80;
+                out center tags 250;
                 """
-                response = requests.post(
-                    "https://overpass-api.de/api/interpreter",
-                    data={"data": query},
-                    timeout=30,
-                    headers={"User-Agent": "CumbrePark prototype / Python Kivy"},
-                )
-                response.raise_for_status()
-                data = response.json()
+                data = overpass_json(query, timeout=35)
                 places = self.parse_places(data, origin_lat, origin_lon)
                 Clock.schedule_once(lambda *_: self.render_places(places), 0)
             except Exception as exc:
-                Clock.schedule_once(lambda *_: self.render_message(f"No se pudo buscar: {exc}"), 0)
+                Clock.schedule_once(
+                    lambda *_args, error=str(exc): self.render_message(f"No se pudo buscar: {error}"), 0
+                )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def parse_places(self, data: dict[str, Any], origin_lat: float, origin_lon: float) -> list[Place]:
         places: list[Place] = []
-        seen: set[tuple[str, int]] = set()
+        seen: dict[str, Place] = {}
         for element in data.get("elements", []):
             tags = element.get("tags", {}) or {}
-            name = tags.get("name") or tags.get("name:es") or "Lugar sin nombre registrado"
+            name = tags.get("name:es") or tags.get("name")
+            if not name:
+                continue
             lat = element.get("lat") or element.get("center", {}).get("lat")
             lon = element.get("lon") or element.get("center", {}).get("lon")
             if lat is None or lon is None:
                 continue
-            key = (str(name).lower(), int(float(lat) * 1000))
-            if key in seen:
+            quality, kind = outdoor_place_quality(tags, str(name), str(element.get("type", "node")))
+            if quality <= 0:
                 continue
-            seen.add(key)
             distance = haversine_km(origin_lat, origin_lon, float(lat), float(lon))
-            places.append(Place(name=str(name), kind=detect_place_kind(tags), lat=float(lat), lon=float(lon), distance_km=distance))
-        places.sort(key=lambda item: item.distance_km)
+            locality = str(tags.get("addr:city") or tags.get("is_in:city") or tags.get("is_in") or "")
+            place = Place(
+                name=str(name), kind=kind, lat=float(lat), lon=float(lon), distance_km=distance,
+                quality_score=quality, locality=locality,
+            )
+            key = normalize_search_text(str(name))
+            existing = seen.get(key)
+            if existing is None or (quality, -distance) > (existing.quality_score, -existing.distance_km):
+                seen[key] = place
+        places = list(seen.values())
+        places.sort(key=lambda item: (item.distance_km, -item.quality_score))
         return places[:40]
 
     def render_places(self, places: list[Place]) -> None:
@@ -1896,7 +2098,7 @@ class NearbyScreen(Screen):
             return
         title_panel = RoundedPanel(orientation="vertical", bg_color=COLORS["mint"], size_hint_y=None, height=dp(78))
         title_panel.add_widget(TitleLabel(text=f"{len(places)} lugares encontrados", size_hint_y=None, height=dp(30), font_size="19sp"))
-        title_panel.add_widget(MutedLabel(text="Ordenados por distancia desde el origen seleccionado.", size_hint_y=None, height=dp(24)))
+        title_panel.add_widget(MutedLabel(text="Filtrados por valor outdoor y ordenados por distancia.", size_hint_y=None, height=dp(24)))
         self.results_content.add_widget(title_panel)
         for place in places:
             self.results_content.add_widget(PlaceCard(place=place))
@@ -2037,21 +2239,23 @@ class ActivityHistoryScreen(Screen):
 
 class PlaceCard(RoundedPanel):
     def __init__(self, place: Place, **kwargs: Any) -> None:
-        super().__init__(orientation="vertical", bg_color=COLORS["surface"], size_hint_y=None, height=dp(176), **kwargs)
+        super().__init__(orientation="vertical", bg_color=COLORS["surface"], size_hint_y=None, height=dp(150), **kwargs)
         self.place = place
         self.spacing = dp(4)
-        self.padding = [dp(12), dp(10), dp(12), dp(10)]
+        self.padding = [dp(12), dp(8), dp(12), dp(8)]
         self.border_color = COLORS["border"]
-        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(44), font_size="18sp")
+        title = TitleLabel(text=place.name, size_hint_y=None, height=dp(38), font_size="17sp")
         title.max_lines = 2
-        title.text_size = (Window.width - dp(72), dp(44))
-        subtitle = BodyLabel(text=f"{place.kind} · {place.distance_km:.1f} km", size_hint_y=None, height=dp(26), font_size="14sp")
-        coords = MutedLabel(text=f"{place.lat:.5f}, {place.lon:.5f}", size_hint_y=None, height=dp(22), font_size="12sp")
-        source = MutedLabel(text=f"Fuente: {place.source}", size_hint_y=None, height=dp(20), font_size="12sp")
+        title.text_size = (Window.width - dp(72), dp(38))
+        subtitle = BodyLabel(text=f"{place.kind} · {place.distance_km:.1f} km", size_hint_y=None, height=dp(24), font_size="14sp")
+        location = f"{place.locality} · " if place.locality else ""
+        meta = MutedLabel(
+            text=f"{location}Relevancia outdoor {place.quality_score}/100 · OSM",
+            size_hint_y=None, height=dp(22), font_size="12sp",
+        )
         self.add_widget(title)
         self.add_widget(subtitle)
-        self.add_widget(coords)
-        self.add_widget(source)
+        self.add_widget(meta)
         actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(38))
         map_btn = SmallButton(text="Ver en mapa", height=dp(38))
         google_btn = SmallButton(text="Google Maps", height=dp(38))
@@ -2078,6 +2282,7 @@ class CumbreParkApp(App):
         self.sm: Optional[ScreenManager] = None
         self.data_dir = Path(".")
         self.offline_cache_dir = Path("map_cache")
+        self.offline_routes_dir = Path("offline_routes")
         self.gps_timeout_event = None
         self.last_fix_monotonic: Optional[float] = None
         self.active_activity: Optional[ActivityRecord] = None
@@ -2094,8 +2299,10 @@ class CumbreParkApp(App):
         Window.clearcolor = COLORS["background"]
         self.data_dir = Path(self.user_data_dir)
         self.offline_cache_dir = self.data_dir / "map_cache"
+        self.offline_routes_dir = self.data_dir / "offline_routes"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.offline_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.offline_routes_dir.mkdir(parents=True, exist_ok=True)
         self.restore_last_location()
         self.restore_active_activity()
         self.sm = ScreenManager(transition=SlideTransition(duration=0.18))
@@ -2105,6 +2312,7 @@ class CumbreParkApp(App):
         self.sm.add_widget(DownloadMapScreen())
         self.sm.add_widget(RouteDetailScreen())
         self.sm.add_widget(RouteNavigationScreen())
+        self.sm.add_widget(OfflineLibraryScreen())
         self.sm.add_widget(EmergencyScreen())
         self.sm.add_widget(ActivityScreen())
         self.sm.add_widget(ActivityHistoryScreen())
@@ -2122,8 +2330,79 @@ class CumbreParkApp(App):
     def offline_route_path(self) -> Path:
         return self.data_dir / "offline_route.json"
 
-    def load_offline_route(self) -> bool:
-        payload = read_json(self.offline_route_path, {})
+    @property
+    def offline_index_path(self) -> Path:
+        return self.offline_routes_dir / "index.json"
+
+    def save_offline_route(
+        self,
+        bundle: dict[str, Any],
+        place: SearchPlace,
+        route: TrailRoute,
+    ) -> Path:
+        safe_id = normalize_search_text(f"{place.name}-{route.route_id}").replace(" ", "-")[:80]
+        filename = f"{safe_id or 'ruta-offline'}.json"
+        destination = self.offline_routes_dir / filename
+        atomic_write_json(destination, bundle)
+        entries = read_json(self.offline_index_path, [])
+        entries = [entry for entry in entries if isinstance(entry, dict) and entry.get("filename") != filename]
+        entries.append({
+            "filename": filename,
+            "place_name": place.name,
+            "route_name": route.name,
+            "locality": place.locality,
+            "reliability": route.reliability,
+            "distance_km": round(route.distance_km, 2),
+            "saved_at": bundle.get("saved_at", utc_now_iso()),
+            "size_bytes": destination.stat().st_size,
+        })
+        entries.sort(key=lambda entry: str(entry.get("saved_at", "")), reverse=True)
+        atomic_write_json(self.offline_index_path, entries[:40])
+        return destination
+
+    def list_offline_routes(self) -> list[dict[str, Any]]:
+        entries = read_json(self.offline_index_path, [])
+        if not entries and self.offline_route_path.is_file():
+            legacy = read_json(self.offline_route_path, {})
+            try:
+                place_data = legacy["place"]
+                properties = legacy["route"]["properties"]
+                legacy_id = normalize_search_text(str(properties.get("id", "ruta-anterior"))).replace(" ", "-")
+                filename = f"legacy-{legacy_id or 'ruta-anterior'}.json"
+                destination = self.offline_routes_dir / filename
+                atomic_write_json(destination, legacy)
+                entries = [{
+                    "filename": filename,
+                    "place_name": str(place_data.get("name", "Lugar guardado")),
+                    "route_name": str(properties.get("name", "Ruta anterior")),
+                    "locality": str(place_data.get("locality", "")),
+                    "reliability": int(properties.get("reliability", 3)),
+                    "distance_km": float(properties.get("distance_km", 0)),
+                    "saved_at": str(legacy.get("saved_at", "")),
+                    "size_bytes": destination.stat().st_size,
+                }]
+                atomic_write_json(self.offline_index_path, entries)
+            except (KeyError, TypeError, ValueError, OSError):
+                entries = []
+        valid: list[dict[str, Any]] = []
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            path = self.offline_routes_dir / str(entry.get("filename", ""))
+            if path.is_file():
+                item = dict(entry)
+                item["size_bytes"] = path.stat().st_size
+                valid.append(item)
+        valid.sort(key=lambda entry: str(entry.get("saved_at", "")), reverse=True)
+        return valid
+
+    def load_offline_route(self, filename: str = "") -> bool:
+        if filename:
+            candidate = self.offline_routes_dir / Path(filename).name
+        else:
+            entries = self.list_offline_routes()
+            candidate = self.offline_routes_dir / str(entries[0]["filename"]) if entries else self.offline_route_path
+        payload = read_json(candidate, {})
         try:
             place = SearchPlace(**payload["place"])
             route_feature = payload["route"]
@@ -2144,6 +2423,8 @@ class CumbreParkApp(App):
                 segments=route_segments,
                 source=str(properties.get("source", "OpenStreetMap")),
                 distance_km=float(properties.get("distance_km", route_distance_km(route_segments))),
+                reliability=int(properties.get("reliability", 3)),
+                route_type=str(properties.get("route_type", "Sendero OSM")),
             )
         except (KeyError, TypeError, ValueError, IndexError):
             return False
@@ -2155,8 +2436,9 @@ class CumbreParkApp(App):
             detail.place = place
             detail.routes = [route]
             detail.selected_route = route
-            detail.place_label.text = f"{place.name}\n{place.kind}"
-            detail.status_label.text = "Ruta cargada desde el almacenamiento offline."
+            location = f" · {place.locality}" if place.locality else ""
+            detail.place_label.text = f"{place.name}\n{place.kind}{location}"
+            detail.status_label.text = f"Ruta offline cargada · {format_bytes(candidate.stat().st_size)}."
             detail.preview.set_data(route.segments, context_segments)
             detail.render_route_buttons()
         self.go_to("route_navigation")
