@@ -49,7 +49,7 @@ from kivy.uix.slider import Slider
 from kivy.uix.widget import Widget
 
 try:
-    from kivy_garden.mapview import MapMarker, MapSource, MapView
+    from kivy_garden.mapview import MapLayer, MapMarker, MapSource, MapView
 
     MAPVIEW_AVAILABLE = True
 except Exception:  # pragma: no cover - solo se usa si falta la dependencia
@@ -87,6 +87,9 @@ except Exception:  # pragma: no cover - solo se usa si falta la dependencia
             self.lat = lat
             self.lon = lon
 
+    class MapLayer(Widget):  # type: ignore
+        pass
+
     MapSource = None  # type: ignore
 
 
@@ -117,6 +120,15 @@ OFFLINE_MIN_ZOOM = 10
 OFFLINE_MAX_ZOOM = 14
 OFFLINE_TILE_LIMIT = 650
 OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+SATELLITE_TILE_URL = (
+    "https://tiles.maps.eox.at/wmts/1.0.0/"
+    "s2cloudless-2021_3857/default/g/{z}/{y}/{x}.jpg"
+)
+SATELLITE_CACHE_KEY = "satellite"
+OVERPASS_URLS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
 HTTP_HEADERS = {"User-Agent": "CumbrePark/0.3 (Android outdoor app; contact: local prototype)"}
 
 
@@ -173,28 +185,69 @@ def offline_tiles(lat: float, lon: float, radius_km: float, min_zoom: int, max_z
     return tiles
 
 
-def mapview_cache_name(zoom: int, x: int, web_y: int) -> str:
+def mapview_cache_name(
+    zoom: int,
+    x: int,
+    web_y: int,
+    cache_key: str = "osm",
+    image_ext: str = "png",
+) -> str:
     """Translate standard web Y into garden.mapview's inverted cache Y."""
     internal_y = (1 << int(zoom)) - int(web_y) - 1
-    return f"osm_{int(zoom)}_{int(x)}_{internal_y}.png"
+    return f"{cache_key}_{int(zoom)}_{int(x)}_{internal_y}.{image_ext}"
 
 
-def create_map_view(**kwargs: Any) -> MapView:
+def create_map_view(provider: str = "osm", **kwargs: Any) -> MapView:
     """Create every map with the same persistent cache used by offline downloads."""
     app = App.get_running_app()
     cache_dir = str(getattr(app, "offline_cache_dir", Path("map_cache")))
     if MAPVIEW_AVAILABLE and MapSource is not None:
+        satellite = provider == "satellite"
         source = MapSource(
-            url=OSM_TILE_URL,
-            cache_key="osm",
+            url=SATELLITE_TILE_URL if satellite else OSM_TILE_URL,
+            cache_key=SATELLITE_CACHE_KEY if satellite else "osm",
             min_zoom=0,
             max_zoom=19,
-            attribution="© OpenStreetMap contributors",
+            image_ext="jpg" if satellite else "png",
+            attribution=(
+                "Sentinel-2 cloudless 2021 by EOX; modified Copernicus Sentinel data"
+                if satellite else "© OpenStreetMap contributors"
+            ),
             cache_dir=cache_dir,
         )
         kwargs.setdefault("map_source", source)
         kwargs.setdefault("cache_dir", cache_dir)
     return MapView(**kwargs)
+
+
+def parse_hiking_routes(payload: dict[str, Any], max_routes: int = 120) -> list[list[list[float]]]:
+    """Extract compact [lat, lon] polylines from an Overpass `out geom` response."""
+    routes: list[list[list[float]]] = []
+    seen: set[tuple[tuple[float, float], ...]] = set()
+
+    def add_geometry(geometry: Any) -> None:
+        if len(routes) >= max_routes or not isinstance(geometry, list):
+            return
+        points: list[list[float]] = []
+        for point in geometry:
+            if not isinstance(point, dict) or "lat" not in point or "lon" not in point:
+                continue
+            points.append([round(float(point["lat"]), 6), round(float(point["lon"]), 6)])
+        if len(points) < 2:
+            return
+        # The endpoints are enough to remove duplicate relation/way geometries.
+        key = ((points[0][0], points[0][1]), (points[-1][0], points[-1][1]))
+        if key not in seen:
+            seen.add(key)
+            routes.append(points)
+
+    for element in payload.get("elements", []):
+        add_geometry(element.get("geometry"))
+        for member in element.get("members", []):
+            add_geometry(member.get("geometry"))
+        if len(routes) >= max_routes:
+            break
+    return routes
 
 
 @dataclass
@@ -449,21 +502,75 @@ class Header(BoxLayout):
         self._header_bg.size = self.size
 
 
+class HikingRouteLayer(MapLayer):
+    """Lightweight trail overlay that follows map pan and zoom operations."""
+
+    def __init__(self, routes: Optional[list[list[list[float]]]] = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.routes = routes or []
+        self._lines: list[Line] = []
+        self._build_canvas()
+
+    def _build_canvas(self) -> None:
+        self.canvas.clear()
+        self._lines = []
+        with self.canvas:
+            Color(*COLORS["accent"])
+            for _route in self.routes:
+                self._lines.append(Line(points=[], width=dp(2.4)))
+
+    def set_routes(self, routes: list[list[list[float]]]) -> None:
+        self.routes = routes
+        self._build_canvas()
+        if self.parent:
+            self.reposition()
+
+    def reposition(self) -> None:
+        mapview = self.parent
+        if not mapview or not hasattr(mapview, "get_window_xy_from"):
+            return
+        for route, line in zip(self.routes, self._lines):
+            points: list[float] = []
+            for lat, lon in route:
+                try:
+                    x, y = mapview.get_window_xy_from(lat, lon, mapview.zoom)
+                    points.extend((x, y))
+                except Exception:
+                    continue
+            line.points = points
+
+
 class LocationMap(BoxLayout):
     """Mapa reutilizable con un marcador principal."""
 
     marker = ObjectProperty(None, allownone=True)
 
-    def __init__(self, selectable: bool = False, on_select: Optional[Callable[[float, float], None]] = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        selectable: bool = False,
+        on_select: Optional[Callable[[float, float], None]] = None,
+        provider: str = "osm",
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self.orientation = "vertical"
         self.selectable = selectable
         self.on_select = on_select
-        self.map = create_map_view(zoom=DEFAULT_ZOOM, lat=DEFAULT_LAT, lon=DEFAULT_LON)
+        self.map = create_map_view(provider=provider, zoom=DEFAULT_ZOOM, lat=DEFAULT_LAT, lon=DEFAULT_LON)
+        self.route_layer: Optional[HikingRouteLayer] = None
         self.add_widget(self.map)
         if selectable and MAPVIEW_AVAILABLE:
             self.map.bind(on_touch_up=self._handle_map_touch)
         self.set_marker(DEFAULT_LAT, DEFAULT_LON, center=True)
+
+    def set_routes(self, routes: list[list[list[float]]]) -> None:
+        if not MAPVIEW_AVAILABLE:
+            return
+        if self.route_layer is None:
+            self.route_layer = HikingRouteLayer(routes)
+            self.map.add_layer(self.route_layer)
+        else:
+            self.route_layer.set_routes(routes)
 
     def set_marker(self, lat: float, lon: float, center: bool = True) -> None:
         try:
@@ -699,6 +806,7 @@ class DownloadMapScreen(Screen):
         super().__init__(**kwargs)
         self.name = "download_map"
         self.download_cancelled = False
+        self.download_mode = "satellite"
         self.selected_lat = DEFAULT_LAT
         self.selected_lon = DEFAULT_LON
 
@@ -708,6 +816,7 @@ class DownloadMapScreen(Screen):
         root.add_widget(Header("Mapa sin internet"))
 
         scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+        self.page_scroll = scroll
         content = BoxLayout(
             orientation="vertical",
             spacing=dp(12),
@@ -718,7 +827,7 @@ class DownloadMapScreen(Screen):
         scroll.add_widget(content)
         root.add_widget(scroll)
 
-        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(650), bg_color=COLORS["soft"])
+        panel = RoundedPanel(orientation="vertical", size_hint_y=None, height=dp(710), bg_color=COLORS["soft"])
         panel.add_widget(TitleLabel(text="Descargar zona", size_hint_y=None, height=dp(36), font_size="21sp"))
         panel.add_widget(MutedLabel(
             text="Elige el centro en el mapa, usa tu GPS o escribe coordenadas. La zona quedará disponible en este dispositivo.",
@@ -728,11 +837,29 @@ class DownloadMapScreen(Screen):
 
         self.preview_map = LocationMap(
             selectable=True,
-            on_select=self.select_center,
+            on_select=self.select_center_from_map,
+            provider="satellite",
             size_hint_y=None,
             height=dp(230),
         )
+        self.preview_map.map.bind(
+            on_touch_down=self._lock_page_scroll,
+            on_touch_up=self._unlock_page_scroll,
+        )
         panel.add_widget(self.preview_map)
+
+        mode_row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(48))
+        self.satellite_mode = OriginModeButton(
+            text="Solo satélite", group="offline_map_mode", state="down", allow_no_selection=False
+        )
+        self.trails_mode = OriginModeButton(
+            text="Satélite + senderos", group="offline_map_mode", allow_no_selection=False
+        )
+        self.satellite_mode.bind(on_release=lambda *_: self.set_download_mode("satellite"))
+        self.trails_mode.bind(on_release=lambda *_: self.set_download_mode("satellite_trails"))
+        mode_row.add_widget(self.satellite_mode)
+        mode_row.add_widget(self.trails_mode)
+        panel.add_widget(mode_row)
 
         location_actions = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(44))
         gps_button = SecondaryButton(text="Usar mi GPS")
@@ -809,16 +936,45 @@ class DownloadMapScreen(Screen):
         app = App.get_running_app()
         if app.has_real_gps_fix:
             self.select_center(app.current_lat, app.current_lon)
+        manifest = read_json(app.data_dir / "offline_map.json", {})
+        self.download_mode = manifest.get("map_type", "satellite")
+        if self.download_mode == "satellite_trails":
+            self.trails_mode.state = "down"
+            saved_routes = read_json(app.data_dir / "offline_routes.json", {}).get("routes", [])
+            self.preview_map.set_routes(saved_routes if isinstance(saved_routes, list) else [])
+        else:
+            self.satellite_mode.state = "down"
+            self.preview_map.set_routes([])
         self.update_storage_status()
 
-    def select_center(self, lat: float, lon: float) -> None:
+    def _lock_page_scroll(self, map_widget: Widget, touch: Any) -> bool:
+        if map_widget.collide_point(*touch.pos):
+            self.page_scroll.do_scroll_y = False
+        return False
+
+    def _unlock_page_scroll(self, _map_widget: Widget, _touch: Any) -> bool:
+        Clock.schedule_once(lambda _dt: setattr(self.page_scroll, "do_scroll_y", True), 0)
+        return False
+
+    def set_download_mode(self, mode: str) -> None:
+        self.download_mode = mode
+        if mode == "satellite":
+            self.preview_map.set_routes([])
+            self.set_status("Modo seleccionado: imagen satelital sin senderos.")
+        else:
+            self.set_status("Modo seleccionado: imagen satelital con senderos de trekking disponibles.")
+
+    def select_center_from_map(self, lat: float, lon: float) -> None:
+        self.select_center(lat, lon, center_map=False)
+
+    def select_center(self, lat: float, lon: float, center_map: bool = True) -> None:
         if not (-90 <= float(lat) <= 90 and -180 <= float(lon) <= 180):
             self.set_status("Las coordenadas ingresadas no son válidas.")
             return
         self.selected_lat, self.selected_lon = float(lat), float(lon)
         self.lat_input.text = f"{self.selected_lat:.6f}"
         self.lon_input.text = f"{self.selected_lon:.6f}"
-        self.preview_map.set_marker(self.selected_lat, self.selected_lon, center=True)
+        self.preview_map.set_marker(self.selected_lat, self.selected_lon, center=center_map)
         self.update_estimate()
 
     def use_gps(self) -> None:
@@ -872,14 +1028,29 @@ class DownloadMapScreen(Screen):
             )
             return
         self.download_cancelled = False
-        self.set_status(f"Preparando {len(tiles)} archivos de mapa...")
-        threading.Thread(target=self._download_worker, args=(tiles,), daemon=True).start()
+        mode = self.download_mode
+        center = (self.selected_lat, self.selected_lon)
+        radius_km = int(self.radius_slider.value)
+        max_zoom = int(self.zoom_slider.value)
+        self.set_status(f"Preparando {len(tiles)} archivos de imagen satelital...")
+        threading.Thread(
+            target=self._download_worker,
+            args=(tiles, mode, center, radius_km, max_zoom),
+            daemon=True,
+        ).start()
 
     def cancel_download(self) -> None:
         self.download_cancelled = True
         self.set_status("Cancelando descarga...")
 
-    def _download_worker(self, tiles: list[tuple[int, int, int]]) -> None:
+    def _download_worker(
+        self,
+        tiles: list[tuple[int, int, int]],
+        mode: str,
+        center: tuple[float, float],
+        radius_km: int,
+        max_zoom: int,
+    ) -> None:
         app = App.get_running_app()
         cache_dir = app.offline_cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -891,20 +1062,22 @@ class DownloadMapScreen(Screen):
         for index, (zoom, x, web_y) in enumerate(tiles, start=1):
             if self.download_cancelled:
                 break
-            destination = cache_dir / mapview_cache_name(zoom, x, web_y)
+            destination = cache_dir / mapview_cache_name(
+                zoom, x, web_y, cache_key=SATELLITE_CACHE_KEY, image_ext="jpg"
+            )
             if destination.exists() and destination.stat().st_size > 100:
                 reused += 1
             else:
                 temporary = destination.with_suffix(".part")
                 try:
                     response = session.get(
-                        OSM_TILE_URL.format(z=zoom, x=x, y=web_y),
+                        SATELLITE_TILE_URL.format(z=zoom, x=x, y=web_y),
                         headers=HTTP_HEADERS,
                         timeout=15,
                     )
                     response.raise_for_status()
                     data = response.content
-                    if not data.startswith(b"\x89PNG"):
+                    if not (data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG")):
                         raise ValueError("respuesta de mapa inválida")
                     temporary.write_bytes(data)
                     temporary.replace(destination)
@@ -924,29 +1097,88 @@ class DownloadMapScreen(Screen):
                 )
             time.sleep(0.04)
 
+        routes: list[list[list[float]]] = []
+        route_error = False
+        if not self.download_cancelled and mode == "satellite_trails":
+            Clock.schedule_once(lambda _dt: self.set_status("Descargando trazados de trekking..."), 0)
+            try:
+                routes = self._download_hiking_routes(session, center, radius_km)
+                route_payload = {
+                    "center": list(center),
+                    "radius_km": radius_km,
+                    "routes": routes,
+                    "downloaded_at": utc_now_iso(),
+                }
+                atomic_write_json(app.data_dir / "offline_routes.json", route_payload)
+                Clock.schedule_once(lambda _dt, data=routes: self.preview_map.set_routes(data), 0)
+            except (OSError, requests.RequestException, ValueError, TypeError):
+                route_error = True
+
         result = {
-            "center": [self.selected_lat, self.selected_lon],
-            "radius_km": int(self.radius_slider.value),
+            "center": list(center),
+            "radius_km": radius_km,
             "min_zoom": OFFLINE_MIN_ZOOM,
-            "max_zoom": int(self.zoom_slider.value),
+            "max_zoom": max_zoom,
             "tiles": total,
             "downloaded": downloaded,
             "reused": reused,
             "failed": failed,
+            "map_type": mode,
+            "hiking_routes": len(routes),
             "completed_at": utc_now_iso(),
         }
         atomic_write_json(app.data_dir / "offline_map.json", result)
         if self.download_cancelled:
             message = f"Descarga cancelada. Se conservaron {downloaded + reused} archivos útiles."
-        elif failed:
+        elif failed or route_error:
             message = f"Mapa guardado parcialmente: {downloaded} nuevos, {reused} existentes y {failed} fallidos."
+            if route_error:
+                message += " No fue posible guardar los senderos; la imagen satelital sí quedó disponible."
         else:
-            message = f"Mapa listo para uso sin internet: {downloaded} nuevos y {reused} ya guardados."
+            trail_text = f" y {len(routes)} trazados" if mode == "satellite_trails" else ""
+            message = f"Mapa satelital listo sin internet: {downloaded} nuevos, {reused} existentes{trail_text}."
         Clock.schedule_once(lambda _dt: self.set_status(message), 0)
+
+    def _download_hiking_routes(
+        self,
+        session: requests.Session,
+        center: tuple[float, float],
+        radius_km: int,
+    ) -> list[list[list[float]]]:
+        lat, lon = center
+        radius_m = radius_km * 1000
+        query = f"""
+        [out:json][timeout:35];
+        (
+          way(around:{radius_m},{lat},{lon})
+            ["highway"~"^(path|footway|track)$"]["name"];
+          way(around:{radius_m},{lat},{lon})["sac_scale"];
+          relation(around:{radius_m},{lat},{lon})["route"="hiking"];
+          relation(around:{radius_m},{lat},{lon})["route"="foot"];
+        );
+        out geom;
+        """
+        last_error: Optional[Exception] = None
+        for endpoint in OVERPASS_URLS:
+            try:
+                response = session.post(
+                    endpoint,
+                    data={"data": query},
+                    headers=HTTP_HEADERS,
+                    timeout=45,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise ValueError("respuesta de senderos inválida")
+                return parse_hiking_routes(payload)
+            except (requests.RequestException, ValueError, TypeError) as exc:
+                last_error = exc
+        raise ValueError("ningún servidor de senderos respondió correctamente") from last_error
 
     def update_storage_status(self) -> None:
         app = App.get_running_app()
-        files = list(app.offline_cache_dir.glob("osm_*.png"))
+        files = list(app.offline_cache_dir.glob(f"{SATELLITE_CACHE_KEY}_*.jpg"))
         size_mb = sum(path.stat().st_size for path in files if path.is_file()) / (1024 * 1024)
         if files:
             self.set_status(f"Mapa offline disponible: {len(files)} archivos, {size_mb:.1f} MB en este dispositivo.")
@@ -1211,7 +1443,7 @@ class NearbyScreen(Screen):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.name = "nearby"
-        self.radius_km = 10
+        self.radius_km = 20
         self.selected_origin_lat: Optional[float] = None
         self.selected_origin_lon: Optional[float] = None
         self.selected_origin_source = "gps"
@@ -1267,7 +1499,15 @@ class NearbyScreen(Screen):
 
         self.radius_label = TitleLabel(text=f"Rango: {self.radius_km} km", size_hint_y=None, height=dp(32), font_size="20sp")
         controls.add_widget(self.radius_label)
-        self.slider = Slider(min=1, max=100, value=self.radius_km, step=1, size_hint_y=None, height=dp(44))
+        self.slider = Slider(
+            min=1,
+            max=100,
+            value=self.radius_km,
+            step=1,
+            size_hint_y=None,
+            height=dp(60),
+            cursor_size=(dp(40), dp(40)),
+        )
         self.slider.bind(value=self.on_radius_change)
         controls.add_widget(self.slider)
 
