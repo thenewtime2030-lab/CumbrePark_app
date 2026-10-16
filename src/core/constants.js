@@ -17,4 +17,4 @@ export const CITIES = [
   { id:'puntaarenas', name:'Punta Arenas', region:'Magallanes', lat:-53.1638, lon:-70.9171, tz:'America/Punta_Arenas' },
   { id:'arica', name:'Arica', region:'Arica y Parinacota', lat:-18.4783, lon:-70.3126, tz:'America/Santiago' }
 ];
-export const ROUTE_NAMES = {home:'Inicio',explore:'Explorar lugares',outdoor:'Deportes outdoor',sports:'Perfil técnico',activity:'Mis actividades',ranking:'CumbreRank',rewards:'Recompensas',community:'Comunidad',events:'Juntas y eventos',safemeet:'SafeMeet',nature:'Naturaleza',academy:'CumbrePark Academy',adventure:'Adventure Pro',plans:'Planes',account:'Cuenta (maqueta)',settings:'Configuración'};
+export const ROUTE_NAMES = {home:'Inicio',explore:'Explorar lugares',outdoor:'Deportes outdoor',sports:'Perfil técnico',activity:'Mis actividades',ranking:'CumbreRank',rewards:'Recompensas',community:'Comunidad',events:'Juntas y eventos',safemeet:'SafeMeet',nature:'Naturaleza',academy:'CumbrePark Academy',adventure:'Adventure Pro',plans:'Planes',summary:'Resumen de datos',account:'Mi perfil',settings:'Configuración'};

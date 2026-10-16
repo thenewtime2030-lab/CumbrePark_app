@@ -1,4 +1,4 @@
-import {getItem} from '../core/storage.js';
+import {getItem} from '../core/profile-storage.js';
 import {heading} from '../components/ui.js';
 import {escapeHTML} from '../core/utils.js';
 export function renderCommunity(){const p=getItem('athleteProfile',{});return `${heading('COMUNIDAD','El outdoor se vive juntos','Amigos, grupos por disciplina y conversación para organizar actividades. Las interacciones aún son maqueta; no hay usuarios ni mensajes reales.','Maqueta social')}

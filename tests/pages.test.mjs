@@ -10,6 +10,6 @@ import {renderCommunity} from '../src/pages/community.js';
 import {renderAccount} from '../src/pages/account.js';
 import {renderSettings} from '../src/pages/settings.js';
 test('every page renders independently with module imports',()=>{for(const fn of [renderHome,renderExplore,renderSports,renderEvents,renderCommunity,renderAccount,renderSettings]){const result=fn();assert.equal(typeof result,'string');assert.ok(result.length>500)}});
-test('prototype does not pretend to create accounts or publish events',()=>{assert.match(renderAccount(),/disabled/);assert.match(renderEvents(),/Sin eventos públicos activos/)});
+test('prototype does not pretend to create accounts or publish events',()=>{assert.match(renderAccount(),/Crear perfil e ingresar/);assert.match(renderAccount(),/Sin contraseña ni sincronización/);assert.match(renderEvents(),/Sin eventos públicos activos/)});
 test('technical profile includes smartwatch placeholder and privacy control',()=>{const html=renderSports();assert.match(html,/Health Connect/);assert.match(html,/local-consent/);assert.match(html,/name="favorite-sport"/)});
 test('main home shows astronomical banner and route navigation',()=>{const html=renderHome();assert.match(html,/Salida del sol/);assert.match(html,/Puesta del sol/);assert.match(html,/data-go="explore"/)});

@@ -1,4 +1,4 @@
-import {getItem,setItem} from './storage.js';
+import {getItem,setItem} from './profile-storage.js';
 import {createActivityModel,OUTDOOR_SPORTS} from './sport-registry.js';
 import {localDateISO} from './utils.js';
 const KEY='event.drafts';

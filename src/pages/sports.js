@@ -1,5 +1,5 @@
 import {SPORTS} from '../core/constants.js';
-import {getItem,setItem,removeItem} from '../core/storage.js';
+import {getItem,setItem,removeItem} from '../core/profile-storage.js';
 import {heading} from '../components/ui.js';
 import {escapeHTML} from '../core/utils.js';
 const KEY='athleteProfile';

@@ -1,4 +1,4 @@
-import {getItem,setItem} from './storage.js';
+import {getItem,setItem} from './profile-storage.js';
 const KEY='academy.drafts';
 export function listCourseDrafts(){const x=getItem(KEY,[]);return Array.isArray(x)?x:[]}
 export function createCourseDraft({name,area,modules}={}){

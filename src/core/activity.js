@@ -1,4 +1,4 @@
-import {getItem,setItem} from './storage.js';
+import {getItem,setItem} from './profile-storage.js';
 import {OUTDOOR_SPORTS} from './sport-registry.js';
 const KEY='activities.v2';
 export function readActivities(){const data=getItem(KEY,[]);return Array.isArray(data)?data.filter(x=>x&&typeof x==='object'):[]}

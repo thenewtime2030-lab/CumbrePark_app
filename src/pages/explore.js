@@ -1,6 +1,6 @@
 import {CITIES} from '../core/constants.js';
 import {getCity,state,setCity} from '../core/state.js';
-import {getItem,setItem} from '../core/storage.js';
+import {getItem,setItem} from '../core/profile-storage.js';
 import {discover,demoPlaces,filterPlaces} from '../services/places.js';
 import {escapeHTML} from '../core/utils.js';
 import {heading,mountainArt} from '../components/ui.js';
