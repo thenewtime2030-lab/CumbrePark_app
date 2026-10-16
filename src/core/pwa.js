@@ -12,7 +12,7 @@ export function setupPWA(){
   if(initialized)return;
   initialized=true;
   if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')) {
-    window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js',{scope:'./'})
+    window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js',{scope:'./',updateViaCache:'none'})
       .catch(error=>console.warn('No fue posible habilitar caché PWA:',error.message)), {once:true});
   }
   window.addEventListener('beforeinstallprompt',event=>{

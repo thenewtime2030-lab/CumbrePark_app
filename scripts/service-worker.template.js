@@ -5,7 +5,7 @@ const PRECACHE = __PRECACHE_PATHS__;
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(PRECACHE.map(path => new URL(path, self.registration.scope).href));
+    await cache.addAll(PRECACHE.map(path => new Request(new URL(path, self.registration.scope).href, {cache:"reload"})));
     await self.skipWaiting();
   })());
 });

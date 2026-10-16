@@ -11,7 +11,7 @@ const listeners=new Map();
 const saved=new Map();
 let claimed=false;
 const cacheNameKeys=new Set(['cumbrepark-pwa-ancienne']);
-const cache={addAll:async urls=>{for (const u of urls){assert.ok(u.startsWith(scope));saved.set(u,{ok:true,url:u})}}};
+const cache={addAll:async urls=>{for (const u of urls){assert.equal(u.cache,"reload");assert.ok(u.url.startsWith(scope));saved.set(u.url,{ok:true,url:u.url})}}};
 const caches={
   open:async key=>{cacheNameKeys.add(key);return cache},
   match:async url=>saved.get(url),
@@ -21,7 +21,7 @@ const caches={
 const self={registration:{scope},location:{origin:'https://example.com'},
   clients:{claim:async()=>{claimed=true}},skipWaiting:async()=>{},
   addEventListener:(kind,fn)=>listeners.set(kind,fn)};
-runInNewContext(js,{self,caches,URL,Promise,Response,fetch:async()=>{throw Error('Sin internet')}});
+runInNewContext(js,{self,caches,URL,Promise,Response,Request,fetch:async()=>{throw Error('Sin internet')}});
 async function fire(type,options={}){
   let waiting=null,response=null;
   listeners.get(type)({ ...options, waitUntil(p){waiting=p}, respondWith(p){response=p} });
