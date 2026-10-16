@@ -211,3 +211,10 @@ a:hover{text-decoration-color:var(--blue)}
   .home-hero{flex-direction:column;align-items:stretch}
   .home-hero .hero-copy{order:1}
 }
+
+/* Barra superior roja exclusivamente en el tema claro. */
+:root[data-theme="light"] .topbar{background:#c8102e;color:#fff;border-bottom-color:#c8102e;--logo-color:#fff}
+:root[data-theme="light"] .topbar :is(.top-name,.breadcrumb,.top-version,.top-separator){color:#fff}
+:root[data-theme="light"] .topbar :is(.icon-button,.theme-button){color:#fff;background:transparent;border-color:rgba(255,255,255,.55)}
+:root[data-theme="light"] .topbar :is(.icon-button,.theme-button):hover{background:rgba(255,255,255,.14);border-color:#fff}
+:root[data-theme="light"] .topbar :is(button,a):focus-visible{outline-color:#fff}
