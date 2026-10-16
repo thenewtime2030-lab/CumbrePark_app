@@ -25,9 +25,9 @@ test('La preferencia de localidad es compartida con Ajustes y Explorar',()=>{
  finally{setCity(original)}
 });
 test('Tipografía, tarjetas cuadradas y tamaño táctil conservado',()=>{
- assert.match(css,/Manrope/);
+ assert.match(css,/Inter/);
  assert.doesNotMatch(css,/Poppins/);
- assert.doesNotMatch(css,/Inter/);
+ assert.doesNotMatch(css,/Manrope/);
  assert.match(css,/--brand:#c8102e/);
  assert.match(css,/--lime:#c8102e/);
  assert.match(css,/\.hero-secondary\{/);
@@ -37,8 +37,8 @@ test('Tipografía, tarjetas cuadradas y tamaño táctil conservado',()=>{
  assert.match(homeCode,/addEventListener\('change'/);
 });
 
-test('El símbolo mantiene colores por tema sin modificar funciones',()=>{
- assert.match(css,/--logo-color:#b7bbc3/);
+test('El símbolo original queda rojo en ambos temas sin modificar funciones',()=>{
+ assert.doesNotMatch(css,/--logo-color:#b7bbc3/);
  assert.match(css,/--logo-color:#c8102e/);
  assert.match(css,/mask-image:url\("\.\.\/assets\/logo-symbol\.svg"\)/);
  assert.match(mark,/<svg[^>]*viewBox="0 0 256 256"/);
