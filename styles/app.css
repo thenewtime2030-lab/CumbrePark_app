@@ -163,3 +163,13 @@ a:hover{text-decoration-color:var(--blue)}
  .top-name{display:none}
  .home-progress{padding:20px}
 }
+
+/* Ajustes de legibilidad en teléfonos: sin alterar los controles existentes. */
+@media(max-width:700px){
+  .home-hero .hero-symbol{display:none}
+  .weather-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .weather-strip>div{min-width:0;overflow:hidden}
+  .home-city-select{display:block;width:100%;max-width:100%;min-width:0;text-overflow:ellipsis;white-space:nowrap}
+  .topbar .top-name{display:inline-flex;font-size:15px}
+  .topbar .breadcrumb,.topbar .top-separator{display:none}
+}
