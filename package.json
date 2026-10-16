@@ -1,10 +1,12 @@
 {
-  "name": "cumbrepark-web",
-  "version": "0.2.0",
+  "name": "cumbrepark-pwa",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
-  "description": "CumbrePark web prototype for GitHub Pages. No runtime dependencies.",
+  "description": "Aplicación web progresiva modular de CumbrePark, sin dependencias ni backend",
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "npm test && npm run build && node scripts/check-build.mjs && node scripts/test-worker.mjs"
   }
 }

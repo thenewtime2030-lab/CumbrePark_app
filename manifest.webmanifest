@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "CumbrePark",
+  "short_name": "CumbrePark",
+  "description": "Explora, conecta y vive el deporte outdoor. Plataforma social y deportiva en desarrollo.",
+  "lang": "es-CL",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#071018",
+  "theme_color": "#071018",
+  "orientation": "any",
+  "categories": ["sports", "lifestyle", "travel"],
+  "icons": [
+    {"src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "./assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}
