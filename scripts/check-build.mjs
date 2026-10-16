@@ -8,11 +8,14 @@ for(const file of ['index.html','manifest.webmanifest','service-worker.js','src/
  await access(join(dist,file));
 const html=await readFile(join(dist,'index.html'),'utf8');
 assert.match(html, /rel="manifest"/);
-assert.match(html, /src="\.\/src\/app\.js"/);
+assert.match(html, /src="\.\/src\/app\.js\?v=[a-f0-9]+"/);
 const sw=await readFile(join(dist,'service-worker.js'),'utf8');
 assert.ok(sw.includes('cumbrepark-pwa-'));
 assert.ok(!sw.includes('__PRECACHE_PATHS__'));
 assert.ok(!sw.includes('__CACHE_VERSION__'));
+const entry=await readFile(join(dist,'src/app.js'),'utf8');
+assert.ok(!/from\s*['"]\.[^'"]+\.js['"]/.test(entry),'Unversioned module import');
+for(const [,url] of entry.matchAll(/from\s*['"]([^'"]+)['"]/g)){assert.ok(sw.includes('src/'+url.replace(/^\.\//,'')),'Module missing from precache: '+url);}
 const manifest=JSON.parse(await readFile(join(dist,'manifest.webmanifest'),'utf8'));
 assert.equal(manifest.display,'standalone');
 assert.ok(manifest.icons.some(icon=>icon.sizes==='192x192'));

@@ -27,8 +27,17 @@ for (const file of [...files].sort()) {
   sha.update(file);
   sha.update(await readFile(join(DIST, file)));
 }
+sha.update(await readFile(join(ROOT, 'scripts', 'service-worker.template.js')));
 const version = sha.digest('hex').slice(0, 14);
-const precache = ['./', ...files.filter(file => !file.startsWith('.') && file !== 'service-worker.js').map(file=>`./${file}`)];
+// Version every module URL so existing browser caches cannot mix releases.
+for (const file of files.filter(file=>file.endsWith('.js'))) {
+  const path=join(DIST,file);
+  const source=await readFile(path,'utf8');
+  await writeFile(path,source.replace(/(from\s*['"])(\.[^'"]+\.js)(['"])/g, `$1$2?v=${version}$3`));
+}
+const htmlPath=join(DIST,'index.html');
+await writeFile(htmlPath,(await readFile(htmlPath,'utf8')).replace('./src/app.js\"', `./src/app.js?v=${version}\"`).replace('./styles/app.css\"', `./styles/app.css?v=${version}\"`));
+const precache = ['./', ...files.filter(file => !file.startsWith('.') && file !== 'service-worker.js').flatMap(file=>/\.(js|css)$/.test(file)?[`./${file}`,`./${file}?v=${version}`]:[`./${file}`])];
 const template = await readFile(join(ROOT, 'scripts', 'service-worker.template.js'), 'utf8');
 await writeFile(join(DIST, 'service-worker.js'), template
     .replace('__CACHE_VERSION__', JSON.stringify(version))
