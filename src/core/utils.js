@@ -1,0 +1,9 @@
+export function escapeHTML(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+export function normalize(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim()}
+export function kmBetween(a,b,c,d){const r=6371,toRad=Math.PI/180;const dl=(c-a)*toRad,doLon=(d-b)*toRad;const q=Math.sin(dl/2)**2+Math.cos(a*toRad)*Math.cos(c*toRad)*Math.sin(doLon/2)**2;return 2*r*Math.asin(Math.min(1,Math.sqrt(q)))}
+export function closestTypoScore(query,text){const q=normalize(query),s=normalize(text);if(!q||!s)return 0;if(s.includes(q))return 1;const max=Math.max(q.length,s.length);let prev=Array.from({length:s.length+1},(_,i)=>i);for(let i=1;i<=q.length;i++){let next=[i];for(let j=1;j<=s.length;j++)next.push(Math.min(next[j-1]+1,prev[j]+1,prev[j-1]+Number(q[i-1]!==s[j-1])));prev=next;}return Math.max(0,1-prev[s.length]/max)}
+export function formatHour(date,tz){return new Intl.DateTimeFormat('es-CL',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:tz}).format(date)}
+export function dateInZone(date,tz){const p=new Intl.DateTimeFormat('en-GB',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:tz}).formatToParts(date);const obj=Object.fromEntries(p.map(x=>[x.type,x.value]));return `${obj.year}-${obj.month}-${obj.day}`}
+export async function fetchJSON(url,{timeout=13000,...opt}={}){const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),timeout);try{const r=await fetch(url,{...opt,signal:ctl.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}finally{clearTimeout(timer)}}
+
+export function localDateISO(date=new Date()){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`}

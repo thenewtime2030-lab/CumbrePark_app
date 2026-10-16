@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {sunTimes} from '../src/services/sun.js';
+import {normalize,kmBetween,escapeHTML,closestTypoScore} from '../src/core/utils.js';
+import {classify,parseElements,demoPlaces,filterPlaces} from '../src/services/places.js';
+import {simplifyForecast} from '../src/services/weather.js';
+import {CITIES} from '../src/core/constants.js';
+const city=CITIES[0];
+test('normalize and typo tolerance',()=>{assert.equal(normalize('  CONGÜILLÍO!! '),'conguillio');assert.ok(closestTypoScore('congilio','conguillio')>.65)});
+test('HTML escaping',()=>assert.equal(escapeHTML('<img onerror="x">'),'&lt;img onerror=&quot;x&quot;&gt;'));
+test('haversine',()=>{assert.equal(kmBetween(0,0,0,0),0);assert.ok(kmBetween(-33,-70,-34,-70)>100)});
+test('sun calculations produce plausible daylight times',()=>{const v=sunTimes(city.lat,city.lon,city.tz,new Date('2026-10-16T15:00:00Z'));assert.match(v.sunrise,/\d\d:\d\d/);assert.match(v.sunset,/\d\d:\d\d/);assert.notEqual(v.sunrise,v.sunset)});
+test('filter rejects generic urban park, unnamed, attraction',()=>{assert.equal(classify({name:'Plaza Jesús Maestro',leisure:'park'}),null);assert.equal(classify({natural:'peak'}),null);assert.equal(classify({name:'Condominio Sol de México',tourism:'attraction'}),null)});
+test('filter accepts peaks and major parks',()=>{assert.equal(classify({name:'Cerro Alto',natural:'peak'}),'Cerro / cumbre');assert.equal(classify({name:'Parque Nacional Río Clarillo',leisure:'park'}),'Parque outdoor')});
+test('parse filters and deduplicates',()=>{const src=[{type:'node',id:1,lat:-33.45,lon:-70.6,tags:{name:'Cerro Alto',natural:'peak'}},{type:'node',id:2,lat:-33.45,lon:-70.6,tags:{name:'Cerro Alto',natural:'peak'}},{type:'node',id:3,lat:-33.45,lon:-70.6,tags:{name:'Plaza Poca',leisure:'park'}}];assert.equal(parseElements(src,city,50).length,1)});
+test('fallback samples labeled and filtered by radius',()=>{const xs=demoPlaces(city,25);assert.ok(xs.length>0);assert.ok(xs.every(x=>x.sample&&x.distance<=25))});
+test('fuzzy filtering',()=>{const xs=demoPlaces(city,60);assert.ok(filterPlaces(xs,'manqueue').some(x=>x.name.includes('Manquehue')))});
+test('weather adapter parses',()=>{const now=new Date('2026-10-16T14:00:00Z');const data={properties:{timeseries:[{time:'2026-10-16T14:00:00Z',data:{instant:{details:{air_temperature:13.1,wind_speed:3}},next_1_hours:{summary:{symbol_code:'cloudy'}}}}]}};const f=simplifyForecast(data,city,now);assert.equal(f.temp,13);assert.equal(f.wind,11);assert.equal(f.condition,'Nublado')});
