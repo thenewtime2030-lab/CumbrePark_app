@@ -23,7 +23,8 @@ test('La preferencia de localidad es compartida con Ajustes y Explorar',()=>{
  finally{setCity(original)}
 });
 test('Tipografía, tarjetas cuadradas y tamaño táctil conservado',()=>{
- assert.match(css,/Inter/);
+ assert.match(css,/Poppins/);
+ assert.doesNotMatch(css,/Inter/);
  assert.doesNotMatch(css,/Manrope/);
  assert.match(css,/--brand:#c8102e/);
  assert.match(css,/--lime:#c8102e/);
