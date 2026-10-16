@@ -1,6 +1,6 @@
 {
   "name": "cumbrepark-pwa",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Aplicación web progresiva modular de CumbrePark, sin dependencias ni backend",
