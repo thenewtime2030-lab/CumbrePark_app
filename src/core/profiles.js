@@ -13,8 +13,17 @@ export function saveProfile(input,id=null){
  const db=database();if(id&&!db.items.some(p=>p.id===id))throw new Error('El perfil ya no existe.');
  if(!id&&db.items.length>=10)throw new Error('Puedes guardar hasta 10 perfiles de prueba.');
  const old=db.items.find(p=>p.id===id);
- const profile={id:id||`p-${Date.now()}-${Math.random().toString(36).slice(2,10)}`,name,city:input.city,sports,createdAt:old?.createdAt||new Date().toISOString()};
+ const profile={id:id||`p-${Date.now()}-${Math.random().toString(36).slice(2,10)}`,name,city:input.city,sports,sportsUnified:true,createdAt:old?.createdAt||new Date().toISOString()};
  db.items=id?db.items.map(p=>p.id===id?profile:p):[...db.items,profile];db.activeId=profile.id;write(db);return profile;
 }
 export function selectProfile(id){const db=database();if(id!==null&&!db.items.some(p=>p.id===id))throw new Error('Ese perfil no existe.');db.activeId=id;write(db);return activeProfile()}
 export function deleteProfile(id){const db=database();if(!db.items.some(p=>p.id===id))return;db.items=db.items.filter(p=>p.id!==id);if(db.activeId===id)db.activeId=null;write(db);PERSONAL_KEYS.forEach(k=>removeItem(`profile.${id}.${k}`));}
+
+// Single selection shared by the public profile and the technical profile.
+// For older profiles, keep their chosen interests, or recover technical interests if empty.
+export function profileSports(){
+ const p=activeProfile(),legacy=getItem(p?`profile.${p.id}.athleteProfile`:'athleteProfile',{});
+ const selected=p&&(p.sportsUnified||p.sports?.length)?p.sports:legacy.sports;
+ return Array.isArray(selected)?[...new Set(selected)].filter(s=>SPORTS.includes(s)).slice(0,3):[];
+}
+export function updateProfileSports(sports){const p=activeProfile();if(p)saveProfile({...p,sports},p.id)}
