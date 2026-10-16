@@ -1,7 +1,7 @@
 import {getItem,setItem,removeItem} from './storage.js';
 import {CITIES,SPORTS} from './constants.js';
 const KEY='profiles.v1';
-export const PERSONAL_KEYS=['activities.v2','athleteProfile','favorites','event.drafts','academy.drafts'];
+export const PERSONAL_KEYS=['activities.v2','athleteProfile','favorites','event.drafts','academy.drafts','restingHR.v1','liveSession.v1'];
 function database(){const x=getItem(KEY,{});return {items:Array.isArray(x?.items)?x.items.filter(p=>p&&typeof p.id==='string'&&typeof p.name==='string'):[],activeId:x?.activeId||null}}
 function write(data){if(!setItem(KEY,data))throw new Error('No se pudo guardar. Revisa el espacio y los permisos del navegador.');}
 export function listProfiles(){return database().items}
