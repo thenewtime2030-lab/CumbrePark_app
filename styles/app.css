@@ -52,3 +52,7 @@
 .home-city-select{display:block;width:100%;max-width:100%;min-width:0;margin:4px 0 7px;min-height:44px;padding:8px 32px 8px 10px;font-size:15px;font-weight:700;line-height:1.35;background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-radius:8px}
 .home-city-select:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
 .weather-strip>div{min-width:0}
+
+/* Chips angulares; los controles circulares y los interruptores conservan su forma. */
+.chip{border-radius:7px}
+.switch span{border-radius:999px}
