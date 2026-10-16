@@ -7,6 +7,8 @@ import {CITIES} from '../src/core/constants.js';
 import {getCity,setCity} from '../src/core/state.js';
 const css=readFileSync(new URL('../styles/app.css',import.meta.url),'utf8');
 const homeCode=readFileSync(new URL('../src/pages/home.js',import.meta.url),'utf8');
+const page=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+const mark=readFileSync(new URL('../assets/logo-symbol.svg',import.meta.url),'utf8');
 test('El inicio conserva clima y selector manual de ciudad',()=>{
  const markup=renderHome();
  assert.match(markup,/id="home-city"/);
@@ -23,9 +25,9 @@ test('La preferencia de localidad es compartida con Ajustes y Explorar',()=>{
  finally{setCity(original)}
 });
 test('Tipografía, tarjetas cuadradas y tamaño táctil conservado',()=>{
- assert.match(css,/Poppins/);
+ assert.match(css,/Manrope/);
+ assert.doesNotMatch(css,/Poppins/);
  assert.doesNotMatch(css,/Inter/);
- assert.doesNotMatch(css,/Manrope/);
  assert.match(css,/--brand:#c8102e/);
  assert.match(css,/--lime:#c8102e/);
  assert.match(css,/\.hero-secondary\{/);
@@ -33,4 +35,14 @@ test('Tipografía, tarjetas cuadradas y tamaño táctil conservado',()=>{
  assert.match(css,/\.home-city-select\{/);
  assert.match(css,/min-height:44px/);
  assert.match(homeCode,/addEventListener\('change'/);
+});
+
+test('El símbolo mantiene colores por tema sin modificar funciones',()=>{
+ assert.match(css,/--logo-color:#b7bbc3/);
+ assert.match(css,/--logo-color:#c8102e/);
+ assert.match(css,/mask-image:url\("\.\.\/assets\/logo-symbol\.svg"\)/);
+ assert.match(mark,/<svg[^>]*viewBox="0 0 256 256"/);
+ assert.match(page,/class="brand-mark brand-glyph"/);
+ assert.match(page,/class="top-logo"><span class="brand-glyph"/);
+ assert.match(homeCode,/hero-symbol brand-glyph/);
 });
